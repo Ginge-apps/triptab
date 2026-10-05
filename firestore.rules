@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+
+    match /trips/{tripId} {
+      // Anyone with the app who knows the 6-letter code can open a trip.
+      // Listing all trips is not allowed, so codes cannot be browsed.
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow update: if signedIn();
+      allow delete: if signedIn() && resource.data.createdBy == request.auth.uid;
+
+      match /{sub=**} {
+        allow read, write: if signedIn();
+      }
+    }
+  }
+}

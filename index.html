@@ -1,0 +1,1748 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Trip Tab</title>
+<meta name="description" content="Track and settle group travel costs.">
+<meta name="theme-color" content="#13294b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Trip Tab">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: single column, boarding-pass header, ticket-stub cards, bottom tab bar. */
+:root{
+  --bg:#eef2f5; --surface:#ffffff; --surface-2:#e4eaef; --fg:#14243a; --muted:#5a6a7d; --line:#d3dbe3;
+  --good:#1d8456; --bad:#c23d2b; --warn:#a8711a;
+  --accent:#f26b21; --accent-ink:#ffffff; --accent-soft:#fde4d5;
+  --hero-a:#13294b; --hero-b:#21507d; --hero-ink:#f4f1ea; --hero-muted:#b8c6d8;
+  --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
+  --body:"Instrument Sans",-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r:14px; --safe-b:env(safe-area-inset-bottom,0px); --safe-t:env(safe-area-inset-top,0px);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c141f; --surface:#142132; --surface-2:#1b2a3e; --fg:#e7edf4; --muted:#94a4b8; --line:#26374c;
+  --good:#4cc38a; --bad:#ff7d69; --warn:#e7b55c; --accent-soft:#3a2516; color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0c141f; --surface:#142132; --surface-2:#1b2a3e; --fg:#e7edf4; --muted:#94a4b8; --line:#26374c;
+  --good:#4cc38a; --bad:#ff7d69; --warn:#e7b55c; --accent-soft:#3a2516; color-scheme:dark}
+/* Skins: trip-level looks. Hero colors carry their own ink so they read in either theme. */
+[data-skin="riviera"]{--accent:#e8505b; --accent-soft:#fbdde0; --hero-a:#0a6c8f; --hero-b:#2bb3c0; --hero-ink:#fffbea; --hero-muted:#d4f1f4}
+[data-skin="alpine"]{--accent:#d63a2f; --accent-soft:#f7dcd9; --hero-a:#1d3b2f; --hero-b:#3f6f55; --hero-ink:#f3f1e8; --hero-muted:#c7d8cc}
+[data-skin="desert"]{--accent:#0f8b8d; --accent-soft:#d3eeee; --hero-a:#a4492a; --hero-b:#e0a35c; --hero-ink:#fff8ee; --hero-muted:#fbe3c6}
+[data-skin="tokyo"]{--accent:#ff3ea5; --accent-soft:#3b1630; --hero-a:#120a2a; --hero-b:#3a1466; --hero-ink:#f5ecff; --hero-muted:#c3a8ff;
+  --bg:#0b0816; --surface:#151027; --surface-2:#1f1838; --fg:#efe9ff; --muted:#a69cc4; --line:#2c2350; --good:#3df0b0; --bad:#ff6b8b; color-scheme:dark}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) [data-skin]:not([data-skin="tokyo"]){--accent-soft:#3a2516}}
+
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--fg);font:15px/1.45 var(--body);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+#app{min-height:100vh;background:var(--bg);color:var(--fg)}
+.wrap{max-width:560px;margin:0 auto;padding-inline:16px;padding-bottom:calc(96px + var(--safe-b))}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none;padding:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono);letter-spacing:.04em}
+.label{font:600 11px/1 var(--body);text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
+h1,h2,h3{text-wrap:balance;margin:0}
+h2{font:800 26px/1 var(--display);letter-spacing:.01em;text-transform:uppercase}
+.muted{color:var(--muted)}
+.good{color:var(--good)} .bad{color:var(--bad)}
+.row{display:flex;align-items:center;gap:10px}
+.grow{flex:1;min-width:0}
+.stack{display:grid;gap:12px}
+.section{display:grid;gap:12px;margin-top:22px}
+.section-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 18px;border-radius:999px;font-weight:600;background:var(--surface-2);color:var(--fg)}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent;border:1.5px solid var(--line)}
+.btn.small{min-height:34px;padding:0 13px;font-size:13px}
+.btn.block{width:100%}
+.btn.danger{background:transparent;color:var(--bad);border:1.5px solid var(--bad)}
+.btn:disabled{opacity:.45}
+.link{color:var(--accent);font-weight:600}
+
+/* Boarding-pass header */
+.pass{position:relative;margin:12px 0 0;border-radius:20px;color:var(--hero-ink);background:linear-gradient(135deg,var(--hero-a),var(--hero-b));overflow:hidden}
+.pass::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(115deg,transparent 0 22px,rgba(255,255,255,.035) 22px 23px);pointer-events:none}
+.pass-main{padding:16px 18px 14px;display:grid;gap:10px;position:relative;z-index:1}
+.route{display:flex;align-items:center;gap:10px;font:800 30px/1 var(--display);letter-spacing:.04em}
+.route svg{flex:1;height:14px;opacity:.75}
+.pass h1{font:800 34px/.95 var(--display);text-transform:uppercase;letter-spacing:.01em}
+.pass-meta{display:flex;flex-wrap:wrap;gap:6px 18px}
+.pass-meta div{display:grid;gap:3px}
+.pass-meta .k{font:600 10px/1 var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--hero-muted)}
+.pass-meta .v{font:500 14px/1.1 var(--mono)}
+.perf{position:relative;height:0;border-top:2px dashed rgba(255,255,255,.28);margin:0 18px}
+.perf::before,.perf::after{content:"";position:absolute;top:-11px;width:20px;height:20px;border-radius:50%;background:var(--bg)}
+.perf::before{left:-29px}.perf::after{right:-29px}
+.pass-stub{padding:12px 18px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:relative;z-index:1}
+.pass-stub .big{font:800 30px/1 var(--display)}
+.top-actions{display:flex;justify-content:space-between;align-items:center;padding-top:calc(10px + var(--safe-t))}
+.icon-btn{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--surface);border:1px solid var(--line)}
+.icon-btn svg{width:20px;height:20px}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.exp{display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;text-align:left;width:100%}
+.exp .cat{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.exp .cat svg{width:22px;height:22px}
+.exp .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.exp .s{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.exp .amt{text-align:right;font:600 16px/1.1 var(--mono)}
+.exp .amt small{display:block;font:500 11px var(--body);color:var(--muted);margin-top:3px}
+.day-head{display:flex;justify-content:space-between;margin:16px 2px 2px}
+.chip-flag{display:inline-block;font:700 10px/1 var(--body);letter-spacing:.1em;text-transform:uppercase;padding:4px 7px;border-radius:6px;background:var(--surface-2);color:var(--muted)}
+.chip-flag.hot{background:var(--accent);color:var(--accent-ink)}
+.nudge{display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:var(--r);background:var(--accent-soft);color:var(--fg)}
+
+/* Chips (people pickers) */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 13px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);font-weight:500}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.chip.off{opacity:.5;text-decoration:line-through}
+.chip .dot{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:700 10px var(--body);color:#fff}
+
+/* Forms */
+.field{display:grid;gap:6px}
+.input,select.input,textarea.input{width:100%;min-height:46px;padding:10px 13px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--fg)}
+textarea.input{min-height:110px;resize:vertical}
+.input:focus{border-color:var(--accent);outline:none}
+.amount-in{font:800 44px/1 var(--display);border:0;background:transparent;width:100%;padding:4px 0;color:var(--fg)}
+.amount-row{display:flex;align-items:center;gap:10px;border-bottom:2px solid var(--line);padding-bottom:4px}
+.amount-row select{border:0;background:var(--surface-2);border-radius:10px;padding:8px 10px;font:500 14px var(--mono)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
+.switch{width:50px;height:30px;border-radius:999px;background:var(--surface-2);position:relative;border:1.5px solid var(--line);flex:none}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;background:var(--muted);transition:transform .15s}
+.switch[aria-checked="true"]{background:var(--accent);border-color:var(--accent)}
+.switch[aria-checked="true"]::after{transform:translateX(20px);background:#fff}
+.stepper{display:flex;align-items:center;gap:6px}
+.stepper button{width:32px;height:32px;border-radius:50%;background:var(--surface-2);font-weight:700}
+.line-item{display:grid;grid-template-columns:1fr 90px;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+.line-item .chips{grid-column:1/-1}
+.line-item .chip{min-height:30px;padding:0 10px;font-size:13px}
+.warn-box{padding:12px 14px;border-radius:12px;border:1.5px solid var(--warn);color:var(--fg);display:grid;gap:10px}
+
+/* Bottom nav */
+.nav{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);padding-bottom:var(--safe-b)}
+.nav-in{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr);align-items:center;height:62px}
+.nav button{display:grid;justify-items:center;gap:2px;font:600 11px var(--body);color:var(--muted)}
+.nav button svg{width:22px;height:22px}
+.nav button[aria-current="page"]{color:var(--accent)}
+.fab{width:58px!important;height:58px;border-radius:50%;background:var(--accent)!important;color:var(--accent-ink)!important;margin:-26px auto 0;box-shadow:0 6px 18px rgba(0,0,0,.25);display:grid!important;place-items:center}
+.fab svg{width:28px!important;height:28px!important}
+
+/* Sheets */
+.scrim{position:fixed;inset:0;background:rgba(5,10,20,.5);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+.sheet{width:100%;max-width:560px;max-height:92vh;overflow:auto;background:var(--bg);border-radius:22px 22px 0 0;padding:10px 16px calc(24px + var(--safe-b));animation:up .22s ease-out}
+.sheet-grip{width:44px;height:5px;border-radius:9px;background:var(--line);margin:0 auto 10px}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;position:sticky;top:-10px;background:var(--bg);padding:8px 0;z-index:2}
+@keyframes up{from{transform:translateY(40px);opacity:.6}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.sheet{animation:none}*{transition:none!important}}
+.add-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.add-tile{display:grid;gap:8px;padding:16px;border-radius:var(--r);background:var(--surface);border:1px solid var(--line);text-align:left}
+.add-tile svg{width:28px;height:28px;color:var(--accent)}
+.add-tile b{font-size:15px}
+.add-tile span{font-size:12.5px;color:var(--muted)}
+
+/* Settle tickets */
+.ticket{display:grid;grid-template-columns:1fr auto;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;position:relative}
+.ticket .ft{display:flex;align-items:center;gap:8px;font-weight:600;flex-wrap:wrap}
+.ticket .ft svg{width:18px;height:18px;color:var(--muted)}
+.ticket .a{font:800 26px/1 var(--display);text-align:right}
+.ticket .pay{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
+.bal-row{display:grid;grid-template-columns:minmax(80px,120px) 1fr 86px;gap:10px;align-items:center;font-size:14px}
+.bal-track{position:relative;height:16px}
+.bal-track::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line)}
+.bal-bar{position:absolute;top:2px;height:12px;border-radius:3px}
+
+/* Charts */
+.bars{display:grid;gap:10px}
+.bar-row{display:grid;grid-template-columns:minmax(70px,110px) 1fr auto;gap:10px;align-items:center;font-size:13.5px}
+.bar-pair{display:grid;gap:3px}
+.bar{height:10px;border-radius:3px;background:var(--accent);min-width:2px}
+.bar.share{background:transparent;border:1.5px solid var(--muted);height:8px}
+.cols{display:flex;align-items:flex-end;gap:6px;height:150px;padding-top:16px;overflow-x:auto}
+.col{flex:1 0 28px;display:grid;justify-items:center;gap:4px;font-size:11px;color:var(--muted);align-self:stretch;grid-template-rows:auto 1fr auto}
+.col .c{width:100%;background:var(--accent);border-radius:4px 4px 0 0;align-self:end;min-height:2px}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:grid;gap:4px}
+.tile .v{font:800 28px/1 var(--display)}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:8px;border-radius:2px;background:var(--accent);margin-right:5px;vertical-align:middle}
+.legend i.o{background:transparent;border:1.5px solid var(--muted)}
+
+/* Trip list */
+.trip-card{display:block;width:100%;text-align:left;border-radius:18px;color:var(--hero-ink);background:linear-gradient(135deg,var(--hero-a),var(--hero-b));padding:16px 18px;position:relative;overflow:hidden}
+.trip-card .route{font-size:22px}
+.trip-card h3{font:800 28px/1 var(--display);text-transform:uppercase;margin-top:6px}
+.trip-card .m{display:flex;gap:16px;margin-top:10px;font:500 13px var(--mono);color:var(--hero-muted)}
+.brand{font:800 40px/.9 var(--display);text-transform:uppercase;letter-spacing:.01em;margin-top:18px}
+.brand span{color:var(--accent)}
+
+/* Overlays */
+.toast{position:fixed;left:50%;bottom:calc(84px + var(--safe-b));transform:translateX(-50%);z-index:60;background:var(--fg);color:var(--bg);padding:11px 16px;border-radius:12px;font-weight:500;max-width:calc(100% - 32px);box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.stamp-wrap{position:fixed;inset:0;z-index:70;display:grid;place-items:center;pointer-events:none}
+.stamp{border:5px solid var(--accent);color:var(--accent);background:var(--bg);padding:14px 22px;border-radius:12px;transform:rotate(-8deg);text-align:center;animation:stamp .5s cubic-bezier(.2,1.6,.4,1)}
+.stamp b{display:block;font:800 52px/.9 var(--display);text-transform:uppercase}
+.stamp span{font:600 15px var(--body);color:var(--fg)}
+@keyframes stamp{from{transform:rotate(-8deg) scale(2.4);opacity:0}to{transform:rotate(-8deg) scale(1);opacity:1}}
+.receipt-img{width:100%;border-radius:12px;border:1px solid var(--line)}
+.thumb{width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+.inbox-card{display:grid;grid-template-columns:56px 1fr auto;gap:12px;align-items:center}
+.spinner{width:18px;height:18px;border-radius:50%;border:2.5px solid var(--line);border-top-color:var(--accent);animation:spin .8s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.banner{padding:12px 14px;border-radius:var(--r);background:var(--surface);border:1.5px dashed var(--accent);display:grid;gap:10px}
+.qr{background:#fff;padding:12px;border-radius:12px;width:220px;margin:0 auto}
+.qr svg{display:block;width:100%;height:auto}
+.empty{text-align:center;padding:30px 10px;display:grid;gap:10px;justify-items:center}
+.empty svg{width:56px;height:56px;color:var(--muted)}
+.list-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+.list-row:first-child{border-top:0}
+.avatar{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font:700 13px var(--body);color:#fff;flex:none}
+.split-sum{font-size:13px;color:var(--muted)}
+.hidden{display:none!important}
+.gauge{height:10px;border-radius:99px;background:var(--surface-2);overflow:hidden}
+.gauge span{display:block;height:100%;background:var(--accent);border-radius:99px}
+.kitty{display:grid;gap:10px;border-width:1.5px}
+.kitty.low{border-color:var(--bad)}
+.badge{display:inline-block;font:700 10.5px/1 var(--body);letter-spacing:.06em;text-transform:uppercase;padding:5px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent)}
+.wrapped-btn{display:grid;gap:4px;text-align:left;width:100%;padding:18px;border-radius:18px;color:var(--hero-ink);background:linear-gradient(120deg,var(--hero-a),var(--hero-b) 70%,var(--accent))}
+.wrapped-btn b{font:800 32px/1 var(--display);text-transform:uppercase}
+.wrapped-btn span:last-child{font-size:13px;color:var(--hero-muted)}
+.wheel-box{position:relative;width:min(320px,82vw);margin:4px auto 0}
+.wheel-box canvas{width:100%;height:auto;display:block}
+.wheel-ptr{position:absolute;left:50%;top:-6px;transform:translateX(-50%);width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:26px solid var(--fg);filter:drop-shadow(0 2px 2px rgba(0,0,0,.3))}
+.wr-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:12px;scrollbar-width:none;margin-inline:-16px;padding-inline:16px}
+.wr-track::-webkit-scrollbar{display:none}
+.wr-card{flex:0 0 100%;scroll-snap-align:center;aspect-ratio:4/5;max-height:62vh;border-radius:22px;background:linear-gradient(160deg,var(--hero-a),var(--hero-b));color:var(--hero-ink);padding:26px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}
+.wr-card::after{content:"";position:absolute;right:-60px;bottom:-60px;width:220px;height:220px;border-radius:50%;border:28px solid var(--accent);opacity:.35}
+.wr-k{font:600 12px/1 var(--body);letter-spacing:.16em;text-transform:uppercase;color:var(--hero-muted)}
+.wr-big{font:800 clamp(40px,13vw,64px)/.92 var(--display);text-transform:uppercase;text-wrap:balance;overflow-wrap:break-word}
+.wr-sub{font-size:17px;line-height:1.35;max-width:30ch;position:relative;z-index:1}
+.wr-list{display:grid;gap:10px;position:relative;z-index:1}
+.wr-list div{display:flex;justify-content:space-between;gap:10px;font-size:15px;border-bottom:1px solid rgba(255,255,255,.18);padding-bottom:8px}
+.wr-list b{font:800 20px/1 var(--display);text-transform:uppercase}
+.dots{display:flex;justify-content:center;gap:6px;margin-top:10px}
+.dots i{width:7px;height:7px;border-radius:50%;background:var(--line)}
+.dots i.on{background:var(--accent)}
+.hh-chip{border-style:dashed}
+.cur-tag{background:var(--surface-2);border-radius:10px;padding:8px 10px;font-size:14px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="sheets"></div>
+<script src="config.js"></script>
+<script type="module">
+/* ===================== Config, utilities ===================== */
+const CFG = window.TRIPTAB_CONFIG || {};
+const APP = CFG.appName || "Trip Tab";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem("tt:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("tt:" + k, JSON.stringify(v)); } catch {} }
+};
+const ALPH = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const rid = (n = 12) => Array.from(crypto.getRandomValues(new Uint8Array(n)), b => ALPH[b % ALPH.length]).join("");
+const todayISO = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+const round2 = n => Math.round((+n + Number.EPSILON) * 100) / 100;
+const CURRENCIES = ["USD","EUR","GBP","CAD","MXN","CHF","SEK","NOK","DKK","JPY","AUD","NZD","CZK","PLN","HUF","ISK","TRY","THB","CRC","ZAR","BRL","INR","AED","SGD","HKD","KRW","CNY"];
+const CATS = ["Food","Drinks","Lodging","Transport","Activities","Groceries","Tips","Deposit","Other"];
+const SKINS = [["passport","Passport"],["riviera","Riviera"],["alpine","Alpine"],["desert","Desert"],["tokyo","Tokyo Night"]];
+const PCOLORS = ["#e4572e","#2e86ab","#7a9e2b","#8e44ad","#d35f8d","#c08a1e","#16a085","#5d6d7e","#c0392b","#2c7be5","#9b6a3c","#0f8b8d"];
+function fmt(n, cur, opts = {}) {
+  try { return new Intl.NumberFormat(undefined, { style: "currency", currency: cur || "USD", maximumFractionDigits: opts.whole ? 0 : 2, minimumFractionDigits: opts.whole ? 0 : 2 }).format(n || 0); }
+  catch { return (cur || "") + " " + (+n || 0).toFixed(2); }
+}
+const sfmt = (n, cur) => (n > 0.004 ? "+" : n < -0.004 ? "-" : "") + fmt(Math.abs(n), cur);
+const dateLabel = iso => { if (!iso) return "No date"; const d = new Date(iso + "T12:00:00"); return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }); };
+const shortDate = iso => iso ? new Date(iso + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+const initials = n => String(n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
+const firstName = n => String(n || "").split(/\s+/)[0];
+const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isStandalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
+const ICON = {
+  plane: '<svg viewBox="0 0 120 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 7h50" stroke-dasharray="3 4"/><path d="M68 7h50" stroke-dasharray="3 4"/><path fill="currentColor" stroke="none" d="M60 1.5l2 0 3.5 4.5h4.5c1 0 1.6.5 1.6 1s-.6 1-1.6 1H65.5L62 12.5h-2l1.8-4.5h-3.6l-1.2 1.5h-1.4l.8-2.5-.8-2.5h1.4l1.2 1.5h3.6z"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>',
+  scale: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 21h14M6 7h12M6 7l-3 7a3 3 0 006 0zM18 7l-3 7a3 3 0 006 0z"/></svg>',
+  chart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+  users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.8a3.5 3.5 0 010 6.4M18 14.8c2 .7 3.2 2.5 3.6 5.2"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  photos: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/></svg>',
+  text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5h14v10H9l-4 4z"/><path d="M9 9h6M9 12h4"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 20l1-4L16 5l3 3L8 19z"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 12h15M14 6l6 6-6 6"/></svg>',
+  mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg>',
+  ticket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7h18v3a2 2 0 000 4v3H3v-3a2 2 0 000-4z"/><path d="M14 7v10" stroke-dasharray="2 2"/></svg>',
+  sheet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 3v18"/></svg>',
+  cat: {
+    Food: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 3v8M5 3v4a2 2 0 004 0V3M7 11v10M17 3c-2 0-3 2-3 6s1 4 3 4v8"/></svg>',
+    Drinks: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 4h14l-7 9zM12 13v7M8 20h8"/></svg>',
+    Lodging: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 19V6M3 14h18v5M21 14v-3a3 3 0 00-3-3h-7v6"/><circle cx="7" cy="10.5" r="1.8"/></svg>',
+    Transport: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 16V8a3 3 0 013-3h8a3 3 0 013 3v8zM5 12h14M7 19v-3M17 19v-3"/><circle cx="8.5" cy="14" r=".6"/><circle cx="15.5" cy="14" r=".6"/></svg>',
+    Activities: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7h18v3a2 2 0 000 4v3H3v-3a2 2 0 000-4z"/><path d="M14 7v10" stroke-dasharray="2 2"/></svg>',
+    Groceries: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 4h2l2.5 11h11L21 7H6.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/></svg>',
+    Tips: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.2 1.7 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6.5v11"/></svg>',
+    Deposit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18M7 15h3"/></svg>',
+    Other: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/></svg>'
+  }
+};
+
+/* ===================== Data layer: Firebase or this-device ===================== */
+const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
+async function cloudStore() {
+  const [{ initializeApp }, A, F] = await Promise.all([import(FB + "firebase-app.js"), import(FB + "firebase-auth.js"), import(FB + "firebase-firestore.js")]);
+  const app = initializeApp(CFG.firebase);
+  const auth = A.getAuth(app);
+  let db;
+  try { db = F.initializeFirestore(app, { localCache: F.persistentLocalCache({ tabManager: F.persistentMultipleTabManager() }) }); }
+  catch { db = F.getFirestore(app); }
+  const uid = await new Promise((res, rej) => {
+    const un = A.onAuthStateChanged(auth, u => { if (u) { un(); res(u.uid); } });
+    A.signInAnonymously(auth).catch(rej);
+  });
+  const isCol = p => p.split("/").length % 2 === 1;
+  return {
+    mode: "cloud", uid,
+    sub(path, cb, onErr) {
+      if (isCol(path)) return F.onSnapshot(F.collection(db, path), { includeMetadataChanges: false }, s => cb(s.docs.map(d => ({ id: d.id, ...d.data() })), s.docChanges().map(c => ({ type: c.type, id: c.doc.id, data: c.doc.data(), local: c.doc.metadata.hasPendingWrites }))), onErr);
+      return F.onSnapshot(F.doc(db, path), d => cb(d.exists() ? { id: d.id, ...d.data() } : null), onErr);
+    },
+    async get(path) { const d = await F.getDoc(F.doc(db, path)); return d.exists() ? { id: d.id, ...d.data() } : null; },
+    set: (path, data) => F.setDoc(F.doc(db, path), data),
+    update: (path, data) => F.updateDoc(F.doc(db, path), data),
+    del: path => F.deleteDoc(F.doc(db, path)),
+    async batch(ops) {
+      for (let i = 0; i < ops.length; i += 400) {
+        const b = F.writeBatch(db);
+        ops.slice(i, i + 400).forEach(o => o.op === "del" ? b.delete(F.doc(db, o.path)) : b.set(F.doc(db, o.path), o.data));
+        await b.commit();
+      }
+    }
+  };
+}
+function localStore() {
+  let data = LS.get("localdb", {});
+  const subs = new Set();
+  const save = () => { LS.set("localdb", data); for (const s of subs) s.fire(); };
+  const parent = p => p.split("/").slice(0, -1).join("/");
+  return {
+    mode: "local", uid: LS.get("localuid", null) || (() => { const u = "local-" + rid(8); LS.set("localuid", u); return u; })(),
+    sub(path, cb) {
+      const col = path.split("/").length % 2 === 1;
+      let prev = {};
+      const s = { fire() {
+        if (col) {
+          const docs = Object.keys(data).filter(k => parent(k) === path).map(k => ({ id: k.split("/").pop(), ...data[k] }));
+          const changes = docs.filter(d => !(d.id in prev)).map(d => ({ type: "added", id: d.id, data: d, local: true }));
+          prev = Object.fromEntries(docs.map(d => [d.id, 1]));
+          cb(docs, changes);
+        } else cb(data[path] ? { id: path.split("/").pop(), ...data[path] } : null);
+      } };
+      subs.add(s); setTimeout(() => s.fire());
+      return () => subs.delete(s);
+    },
+    async get(path) { return data[path] ? { id: path.split("/").pop(), ...structuredClone(data[path]) } : null; },
+    async set(path, d) { data[path] = structuredClone(d); save(); },
+    async update(path, d) {
+      if (!data[path]) throw new Error("missing");
+      for (const [k, v] of Object.entries(d)) {
+        if (k.includes(".")) { const [a, b] = k.split("."); data[path][a] = { ...(data[path][a] || {}), [b]: v }; }
+        else data[path][k] = v;
+      }
+      save();
+    },
+    async del(path) { delete data[path]; save(); },
+    async batch(ops) { ops.forEach(o => o.op === "del" ? delete data[o.path] : (data[o.path] = structuredClone(o.data))); save(); }
+  };
+}
+
+/* ===================== State ===================== */
+const S = {
+  store: null, uid: null,
+  tripIds: LS.get("trips", []),
+  trips: {},           // id -> trip doc
+  tripId: null, trip: null, people: [], expenses: [], payments: [],
+  view: "home", tab: LS.get("tab", "feed"),
+  inbox: [],           // receipts waiting for review
+  settings: Object.assign({ sound: true, voice: true, tease: true }, LS.get("settings", {})),
+  unsubTrip: [], unsubTrips: {}, ready: false, loaded: { expenses: false }
+};
+const write = (p, fn) => p.catch(e => { console.error(e); toast(fn || "Could not save. Check your connection; it will retry when you are back online."); });
+
+/* ===================== Money math ===================== */
+function tripCur() { return S.trip?.currency || "USD"; }
+function rateOf(e) { return e.currency && e.currency !== tripCur() ? (+e.rate || 0) : 1; }
+function sign(e) { return e.refund ? -1 : 1; }
+function expTotal(e) { return sign(e) * (+e.amount || 0) * rateOf(e); }
+function payerMap(e) { // trip-currency amounts per payer
+  const r = rateOf(e) * sign(e), out = {};
+  if (e.payers && Object.keys(e.payers).length) for (const [p, a] of Object.entries(e.payers)) out[p] = (+a || 0) * r;
+  else if (e.paidBy) out[e.paidBy] = expTotal(e);
+  return out;
+}
+function shareMap(e) {
+  const total = expTotal(e), split = e.split || {}, out = {};
+  const parts = Object.keys(split).filter(k => +split[k] > 0);
+  if (e.mode === "items" && e.items?.length) {
+    const base = {};
+    for (const it of e.items) {
+      const ps = it.pids?.length ? it.pids : parts; if (!ps.length) continue;
+      for (const p of ps) base[p] = (base[p] || 0) + (+it.amount || 0) / ps.length;
+    }
+    const bt = Object.values(base).reduce((a, b) => a + b, 0);
+    for (const p in base) out[p] = bt ? total * base[p] / bt : 0;
+    return out;
+  }
+  const W = parts.reduce((s, p) => s + +split[p], 0);
+  for (const p of parts) out[p] = W ? total * +split[p] / W : 0;
+  return out;
+}
+function computeBalances(people, expenses, payments) {
+  const b = {}; for (const p of people) b[p.id] = { paid: 0, share: 0, sent: 0, recv: 0, net: 0 };
+  const g = id => (b[id] ||= { paid: 0, share: 0, sent: 0, recv: 0, net: 0 });
+  for (const e of expenses) {
+    for (const [p, a] of Object.entries(payerMap(e))) g(p).paid += a;
+    for (const [p, a] of Object.entries(shareMap(e))) g(p).share += a;
+  }
+  for (const pm of payments) { g(pm.from).sent += +pm.amount || 0; g(pm.to).recv += +pm.amount || 0; }
+  for (const k in b) b[k].net = b[k].paid - b[k].share + b[k].sent - b[k].recv;
+  return b;
+}
+function settlePlan(bal, mode, hub) {
+  const cents = Object.entries(bal).map(([p, v]) => [p, Math.round(v.net * 100)]).filter(([, c]) => c !== 0);
+  const out = [];
+  if (mode === "hub" && hub && bal[hub]) {
+    for (const [p, c] of cents) { if (p === hub) continue; if (c < 0) out.push({ from: p, to: hub, amount: -c / 100 }); else out.push({ from: hub, to: p, amount: c / 100 }); }
+    return out;
+  }
+  const cr = cents.filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]).map(x => [...x]);
+  const dr = cents.filter(x => x[1] < 0).map(([p, c]) => [p, -c]).sort((a, b) => b[1] - a[1]);
+  let i = 0, j = 0;
+  while (i < dr.length && j < cr.length) {
+    const x = Math.min(dr[i][1], cr[j][1]);
+    if (x > 0) out.push({ from: dr[i][0], to: cr[j][0], amount: x / 100 });
+    dr[i][1] -= x; cr[j][1] -= x;
+    if (!dr[i][1]) i++; if (!cr[j][1]) j++;
+  }
+  return out;
+}
+window.__math = { shareMap, payerMap, computeBalances, settlePlan, expTotal };
+
+/* ===================== Sound and voice ===================== */
+let AC;
+function ac() { try { AC ||= new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === "suspended") AC.resume(); } catch {} return AC; }
+function blip(f, t0, dur, type = "sine", vol = .15, f2) {
+  const c = ac(); if (!c) return;
+  const o = c.createOscillator(), g = c.createGain(), t = c.currentTime + t0;
+  o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.linearRampToValueAtTime(f2, t + dur);
+  g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vol, t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  o.connect(g).connect(c.destination); o.start(t); o.stop(t + dur + .05);
+}
+const SFX = {
+  add() { blip(1318, 0, .09, "square", .06); blip(1760, .08, .22, "square", .06); },
+  big() { [523, 659, 784, 1047].forEach((f, i) => blip(f, i * .1, .2, "sawtooth", .05)); blip(1047, .42, .6, "square", .05); blip(1568, .42, .6, "sine", .05); },
+  sad() { [392, 370, 349, 294].forEach((f, i) => blip(f, i * .4, i === 3 ? .9 : .42, "sawtooth", .07, f * .97)); },
+  paid() { blip(880, 0, .12, "triangle", .15); blip(1175, .1, .14, "triangle", .15); blip(1760, .22, .4, "triangle", .12); },
+  ping() { blip(1568, 0, .16, "sine", .07); }
+};
+function sfx(name) { if (S.settings.sound) try { SFX[name](); } catch {} }
+function say(text) {
+  if (!S.settings.voice || !("speechSynthesis" in window)) return;
+  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text); u.rate = 1.03; u.pitch = 1; speechSynthesis.speak(u); } catch {}
+}
+const TEASE = [
+  (n, a) => `${n}, you are down ${a}. The group would like a word.`,
+  (n, a) => `Attention please. ${n} has not reached for a check since boarding.`,
+  (n, a) => `${n}, your wallet has been reported missing. Reward offered: ${a}.`,
+  (n, a) => `Breaking news. ${n} owes ${a}. Venmo is standing by.`,
+  (n, a) => `${n}, the next round is on you. So were the last few.`,
+  (n, a) => `Flight attendants, please collect ${a} from ${n} before landing.`,
+  (n, a) => `${n}, the bar tab called. It knows your name.`,
+  (n, a) => `This is your captain speaking. ${n}, please settle ${a} at your earliest convenience.`
+];
+const BIG = [
+  (n, a, d) => `Big spender! ${n} just dropped ${a} on ${d}.`,
+  (n, a, d) => `Make it rain. ${n} covers ${d}. ${a}.`,
+  (n, a, d) => `${n} is buying. ${a}. Somebody frame this receipt.`,
+  (n, a, d) => `Ladies and gentlemen, ${n}. ${a}. Hold your applause.`
+];
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+function spokenMoney(n, cur) { const w = Math.round(Math.abs(n)); const names = { USD: "dollars", EUR: "euros", GBP: "pounds", SEK: "kronor", CAD: "dollars", CHF: "francs", JPY: "yen", MXN: "pesos" }; return `${w} ${names[cur] || cur}`; }
+
+/* ===================== UI primitives ===================== */
+let toastT;
+function toast(msg, ms = 3200) {
+  let t = $("#toast"); if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; t.setAttribute("role", "status"); document.body.append(t); }
+  t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, ms);
+}
+function stamp(title, sub) {
+  const w = document.createElement("div"); w.className = "stamp-wrap";
+  w.innerHTML = `<div class="stamp"><b>${esc(title)}</b><span>${esc(sub)}</span></div>`;
+  document.body.append(w); setTimeout(() => w.remove(), 2600);
+}
+const sheetStack = [];
+function openSheet(html, { onMount, onClose, skin } = {}) {
+  const host = $("#sheets");
+  const scrim = document.createElement("div"); scrim.className = "scrim";
+  scrim.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"${skin ? ` data-skin="${skin}"` : ""}><div class="sheet-grip"></div>${html}</div>`;
+  scrim.addEventListener("click", e => { if (e.target === scrim) closeSheet(); });
+  host.append(scrim); sheetStack.push({ scrim, onClose });
+  document.body.style.overflow = "hidden";
+  onMount?.(scrim.querySelector(".sheet"));
+  return scrim.querySelector(".sheet");
+}
+function closeSheet() {
+  const s = sheetStack.pop(); if (!s) return;
+  s.scrim.remove(); s.onClose?.();
+  if (!sheetStack.length) document.body.style.overflow = "";
+}
+function sheetHead(title, right = "") { return `<div class="sheet-head"><h2>${esc(title)}</h2><div class="row">${right}<button class="btn small ghost" data-act="close">Close</button></div></div>`; }
+function chipPerson(p, pressed, act, extra = "") {
+  return `<button class="chip" aria-pressed="${pressed}" data-act="${act}" data-pid="${p.id}" ${extra}><span class="dot" style="background:${p.color || "#888"}">${esc(initials(p.name))}</span>${esc(dn(p))}</button>`;
+}
+const KITTY = "KITTY";
+const KITTY_P = { id: KITTY, name: "Kitty", nickname: "Kitty", color: "#d99a00", kitty: true };
+const potName = () => S.trip?.kitty?.name || "Kitty";
+function personById(id) { if (id === KITTY) return { ...KITTY_P, name: potName(), nickname: potName() }; return S.people.find(p => p.id === id) || { id, name: "Removed person", color: "#888" }; }
+function nameOf(id) { const p = personById(id); return p.nickname && !p.kitty ? `${p.nickname} (${firstName(p.name)})` : p.name; }
+function dn(p) { return p?.nickname || firstName(p?.name); }
+function short(id) { return dn(personById(id)); }
+const kittyOn = () => !!S.trip?.kitty?.on;
+const multiCur = () => !!S.trip?.multiCurrency;
+/* Households: people sharing a household name settle as one unit */
+function unitKey(pid) { const p = personById(pid); return p.household?.trim() ? "H:" + p.household.trim().toLowerCase() : pid; }
+function unitsMap() {
+  const m = {};
+  for (const p of S.people) { const k = unitKey(p.id); (m[k] ||= { key: k, label: p.household?.trim() || dn(p), members: [], lead: p.id }).members.push(p.id); }
+  if (kittyOn()) m[KITTY] = { key: KITTY, label: potName(), members: [KITTY], lead: KITTY };
+  return m;
+}
+function households() { return Object.values(unitsMap()).filter(u => u.key.startsWith("H:") && u.members.length > 1); }
+function myPid() {
+  const p = S.people.find(p => p.uid && p.uid === S.uid);
+  return p ? p.id : LS.get("me:" + S.tripId, null);
+}
+function isOrganizer() { return S.trip && (S.trip.createdBy === S.uid || S.store.mode === "local"); }
+function canEditExp(e) { return isOrganizer() || e.createdBy === S.uid; }
+function skinOf(t) { return t?.skin || "passport"; }
+
+/* ===================== Claude (via Cloudflare relay) ===================== */
+const claudeReady = () => !!CFG.claudeProxy;
+async function askClaude(system, content, max_tokens = 2500) {
+  if (!claudeReady()) throw new Error("Receipt reading is not set up yet. Add the Claude relay URL in config.js.");
+  const r = await fetch(CFG.claudeProxy, { method: "POST", headers: { "content-type": "application/json", "x-app-key": CFG.appKey || "" }, body: JSON.stringify({ system, max_tokens, messages: [{ role: "user", content }] }) });
+  const txt = await r.text();
+  if (!r.ok) throw new Error(r.status === 403 ? "The Claude relay refused the request. Check the app key." : "Claude could not read that (" + r.status + "). Try again.");
+  const j = JSON.parse(txt);
+  const t = (j.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+  return parseJSONLoose(t);
+}
+function parseJSONLoose(t) {
+  try { return JSON.parse(t); } catch {}
+  const f = t.match(/```(?:json)?\s*([\s\S]*?)```/); if (f) try { return JSON.parse(f[1]); } catch {}
+  const a = t.indexOf("{"), b = t.lastIndexOf("}"); if (a >= 0 && b > a) return JSON.parse(t.slice(a, b + 1));
+  throw new Error("Claude's answer was not readable. Try again.");
+}
+async function fileToJpeg(file, max = 1568, q = .85) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", q);
+  } finally { URL.revokeObjectURL(url); }
+}
+async function thumbFor(file) { // stored copy, kept small for the database
+  let d = await fileToJpeg(file, 1000, .6);
+  if (d.length > 300000) d = await fileToJpeg(file, 760, .5);
+  return d;
+}
+function rosterText() { return S.people.map(p => p.name + (p.nickname ? ` (aka ${p.nickname})` : "") + (p.household ? ` [household: ${p.household}]` : "")).join(", ") || "(none yet)"; }
+async function readReceipt(file) {
+  const big = await fileToJpeg(file);
+  const sys = "You read photos of receipts for a group travel expense app. Reply with only one JSON object, no prose.";
+  const prompt = `Read this receipt. It may be a paper receipt, a card slip, or a screenshot of an app or email receipt (Uber, Lyft, Bolt, DoorDash, Uber Eats, Airbnb, booking sites). For app screenshots use the final charged total including fees and tip, and use the trip or order date shown. The trip currency is ${tripCur()}. Trip dates: ${S.trip.start || "?"} to ${S.trip.end || "?"}.
+Return JSON:
+{"is_receipt":true,"merchant":"","description":"short label like 'Dinner at Merchant' or 'Uber to airport'","date":"YYYY-MM-DD or null","currency":"ISO 4217 code","total":0,"subtotal":null,"tax":null,"tip":null,"category":"one of ${CATS.join("|")}","items":[{"name":"","amount":0}],"payment_note":"card brand / cash if shown, else null"}
+Rules: total is the final amount charged, including tax, service and any handwritten tip. Items are line items with their extended price (quantity times unit price); leave items empty if unreadable; at most 40. Pick currency from symbols, language and address. If this is not a receipt, set is_receipt false.`;
+  const out = await askClaude(sys, [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: big.split(",")[1] } }, { type: "text", text: prompt }], 3000);
+  return out;
+}
+async function readText(text) {
+  const me = myPid() ? nameOf(myPid()) : null;
+  const sys = "You turn casual notes about shared travel spending into structured expenses. Reply with only one JSON object, no prose.";
+  const prompt = `Crew on this trip: ${rosterText()}.
+The person typing is: ${me || "unknown"} (map "me", "I", "my" to them).
+Trip currency: ${tripCur()}. Today is ${todayISO()}. Trip dates ${S.trip.start || "?"} to ${S.trip.end || "?"}.
+Text (may be a pasted email, text message, or dictated note; may hold several expenses):
+"""${text.slice(0, 12000)}"""
+Return JSON:
+{"expenses":[{"description":"short label","amount":0,"currency":"ISO code","date":"YYYY-MM-DD or null","category":"one of ${CATS.join("|")}",
+"payers":[{"names":["name"],"amount":0}],
+"participants":null,
+"exclude":[],
+"items":[]}]}
+Rules: amount is the total. payers lists who put money in and how much; when several names share one amount (for example "130 from Amy and Scott"), put them together in one entry. If one person paid everything, one payers entry with the full amount. If no payer is stated, payers is an empty list. participants is a list of names who share the cost, or null when it is everyone. exclude lists names explicitly left out. Use names exactly as written when they are not in the crew list. Use crew spellings when they match.`;
+  return askClaude(sys, prompt, 2500);
+}
+function matchPerson(name) {
+  if (!name) return null;
+  const n = String(name).trim().toLowerCase();
+  if (["me", "i", "myself", "my"].includes(n)) return myPid();
+  let p = S.people.find(p => p.name.toLowerCase() === n || (p.nickname || "").toLowerCase() === n)
+       || S.people.find(p => dn(p).toLowerCase() === n)
+       || S.people.find(p => dn(p).toLowerCase() === n.split(/\s+/)[0])
+       || S.people.find(p => p.name.toLowerCase().startsWith(n));
+  return p ? p.id : null;
+}
+
+/* ===================== Boot ===================== */
+async function boot() {
+  renderShell("Loading");
+  try { S.store = CFG.firebase?.apiKey ? await cloudStore() : localStore(); }
+  catch (e) { console.error(e); S.store = localStore(); toast("Could not reach the sync service. Working on this phone only for now.", 5000); }
+  S.uid = S.store.uid; S.ready = true;
+  for (const id of S.tripIds) watchTrip(id);
+  const q = new URLSearchParams(location.search);
+  const join = q.get("join") || q.get("trip");
+  const shared = q.get("text") || q.get("title");
+  history.replaceState(null, "", location.pathname);
+  if (join) await joinTrip(join.toUpperCase());
+  else if (S.tripIds.length && LS.get("lastTrip") && S.tripIds.includes(LS.get("lastTrip"))) openTrip(LS.get("lastTrip"));
+  else render();
+  if (shared && S.tripId) openQuickText([q.get("title"), q.get("text"), q.get("url")].filter(Boolean).join("\n"));
+}
+function watchTrip(id) {
+  if (S.unsubTrips[id]) return;
+  S.unsubTrips[id] = S.store.sub("trips/" + id, t => {
+    if (t) S.trips[id] = t; else { delete S.trips[id]; }
+    if (id === S.tripId) { S.trip = t; if (!t) { goHome(); toast("That trip was deleted."); return; } }
+    render();
+  }, e => console.warn(e));
+}
+function openTrip(id) {
+  S.unsubTrip.forEach(u => u()); S.unsubTrip = [];
+  S.tripId = id; S.trip = S.trips[id] || null; S.view = "trip"; S.people = []; S.expenses = []; S.payments = []; S.loaded = { expenses: false };
+  LS.set("lastTrip", id);
+  const base = "trips/" + id;
+  S.unsubTrip.push(S.store.sub(base + "/people", docs => { S.people = docs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)); render(); }));
+  S.unsubTrip.push(S.store.sub(base + "/expenses", (docs, changes) => {
+    const first = !S.loaded.expenses; S.expenses = docs; S.loaded.expenses = true;
+    if (!first) for (const c of changes) if (c.type === "added" && !c.local && c.data.createdBy !== S.uid) {
+      sfx("ping"); toast(`${short(Object.keys(payerMap(c.data))[0])} added ${c.data.description || "an expense"}, ${fmt(expTotal(c.data), tripCur())}`);
+    }
+    render();
+  }));
+  S.unsubTrip.push(S.store.sub(base + "/payments", docs => { S.payments = docs; render(); }));
+  render();
+}
+function goHome() { S.unsubTrip.forEach(u => u()); S.unsubTrip = []; S.tripId = null; S.trip = null; S.view = "home"; LS.set("lastTrip", null); render(); }
+async function joinTrip(code) {
+  code = code.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  if (!code) return;
+  const t = await S.store.get("trips/" + code).catch(() => null);
+  if (!t) { render(); toast("No trip found for code " + code + ". Check the code with the organizer."); return; }
+  if (!S.tripIds.includes(code)) { S.tripIds.push(code); LS.set("trips", S.tripIds); }
+  watchTrip(code); S.trips[code] = t; openTrip(code); sfx("paid");
+}
+
+/* ===================== Render ===================== */
+function renderShell(msg) { $("#app").innerHTML = `<div class="wrap"><div class="empty" style="padding-top:30vh"><span class="spinner"></span><span class="muted">${esc(msg)}</span></div></div>`; }
+function render() {
+  if (!S.ready) return;
+  const app = $("#app");
+  if (S.view === "trip" && S.trip) { app.dataset.skin = skinOf(S.trip); app.innerHTML = renderTrip(); }
+  else { delete app.dataset.skin; app.innerHTML = renderHome(); }
+}
+function renderHome() {
+  const trips = S.tripIds.map(id => S.trips[id] && { id, ...S.trips[id] }).filter(Boolean).sort((a, b) => (b.start || "").localeCompare(a.start || ""));
+  const installTip = !isStandalone ? `<div class="banner"><div><b>Put ${esc(APP)} on your Home Screen</b><div class="muted" style="font-size:13.5px">${isIOS ? "Tap the Share button in Safari, then Add to Home Screen. Open it from there from now on; your trips live inside the installed app." : "Open your browser menu, then Install app or Add to Home screen."}</div></div><button class="btn small ghost" data-act="install-help">Show me how</button></div>` : "";
+  const localNote = S.store?.mode === "local" ? `<div class="banner" style="border-color:var(--warn)"><b>Single-phone mode</b><span class="muted" style="font-size:13.5px">Sync is not set up yet, so trips stay on this phone. Finish the Firebase step in the setup guide to share trips with your crew.</span></div>` : "";
+  return `<div class="wrap">
+    <div class="top-actions"><div></div><button class="icon-btn" data-act="settings" aria-label="Settings">${ICON.gear}</button></div>
+    <div class="brand">${esc(APP.split(" ")[0])}<br><span>${esc(APP.split(" ").slice(1).join(" ") || "")}</span></div>
+    <p class="muted" style="margin:8px 0 0">Snap it, split it, settle it.</p>
+    <div class="section">${installTip}${localNote}</div>
+    <div class="section">
+      <div class="section-head"><span class="label">Your trips</span></div>
+      ${trips.length ? trips.map(t => `<button class="trip-card" data-skin="${skinOf(t)}" data-act="open-trip" data-id="${t.id}">
+        <div class="route">${esc(t.from || "HOME")} ${ICON.plane} ${esc(t.to || "AWAY")}</div>
+        <h3>${esc(t.name)}</h3>
+        <div class="m"><span>${esc(shortDate(t.start))}${t.end ? " to " + esc(shortDate(t.end)) : ""}</span><span>${esc(t.currency)}</span><span>CODE ${esc(t.id)}</span></div>
+      </button>`).join("") : `<div class="card empty">${ICON.ticket}<b>No trips yet</b><span class="muted">Start one, join a friend's with their trip code, or bring in an old spreadsheet.</span></div>`}
+    </div>
+    <div class="section">
+      <button class="btn primary block" data-act="new-trip">${ICON.plus} Start a trip</button>
+      <div class="two"><button class="btn ghost" data-act="join-trip">Join with code</button><button class="btn ghost" data-act="import-sheet">Import spreadsheet</button></div>
+    </div>
+  </div>`;
+}
+function renderTrip() {
+  const t = S.trip, cur = tripCur();
+  const bal = computeBalances(S.people, S.expenses, S.payments);
+  const me = myPid();
+  const total = S.expenses.reduce((s, e) => s + expTotal(e), 0);
+  const days = tripDays(t).length || 1;
+  const myBal = me && bal[me] ? bal[me].net : null;
+  const claim = !me && S.people.length ? `<div class="banner"><b>Which one are you?</b><span class="muted" style="font-size:13.5px">Tap your name so expenses default to you.</span><div class="chips">${S.people.filter(p => !p.uid).map(p => chipPerson(p, false, "claim")).join("")}<button class="chip" data-act="add-me">I'm not listed</button></div></div>` : "";
+  const header = `<div class="top-actions"><button class="icon-btn" data-act="home" aria-label="All trips">${ICON.back}</button><div class="row"><button class="icon-btn" data-act="invite" aria-label="Invite">${ICON.users}</button><button class="icon-btn" data-act="trip-settings" aria-label="Trip settings">${ICON.gear}</button></div></div>
+  <header class="pass">
+    <div class="pass-main">
+      <div class="route">${esc(t.from || "HOME")} ${ICON.plane} ${esc(t.to || "AWAY")}</div>
+      <h1>${esc(t.name)}</h1>
+      <div class="pass-meta">
+        <div><span class="k">Dates</span><span class="v">${t.start ? esc(shortDate(t.start)) + (t.end ? "-" + esc(shortDate(t.end)) : "") : "Open"}</span></div>
+        <div><span class="k">Crew</span><span class="v">${S.people.length}</span></div>
+        <div><span class="k">Total</span><span class="v num">${fmt(total, cur, { whole: total > 9999 })}</span></div>
+        <div><span class="k">Per head/day</span><span class="v num">${fmt(S.people.length ? total / S.people.length / days : 0, cur, { whole: true })}</span></div>
+      </div>
+    </div>
+    <div class="perf"></div>
+    <div class="pass-stub">
+      ${myBal == null ? `<div><div class="pass-meta"><div><span class="k">Trip code</span><span class="v">${esc(S.tripId)}</span></div></div></div>` :
+      `<div><div class="pass-meta"><div><span class="k">${myBal >= 0 ? "You are owed" : "You owe"}</span></div></div><div class="big num">${fmt(Math.abs(myBal), cur)}</div></div>`}
+      <button class="btn small" style="background:rgba(255,255,255,.14);color:var(--hero-ink)" data-act="tab" data-tab="settle">Settle up</button>
+    </div>
+  </header>`;
+  let body = "";
+  if (S.tab === "settle") body = renderSettle(bal);
+  else if (S.tab === "stats") body = renderStats(bal);
+  else if (S.tab === "crew") body = renderCrew(bal);
+  else body = renderFeed(bal);
+  const nb = (tab, icon, label) => `<button data-act="tab" data-tab="${tab}" ${S.tab === tab ? 'aria-current="page"' : ""}>${icon}<span>${label}</span></button>`;
+  return `<div class="wrap">${header}${claim ? `<div class="section">${claim}</div>` : ""}${body}</div>
+  <nav class="nav"><div class="nav-in">${nb("feed", ICON.list, "Expenses")}${nb("settle", ICON.scale, "Settle")}<button class="fab" data-act="add" aria-label="Add expense">${ICON.plus}</button>${nb("stats", ICON.chart, "Stats")}${nb("crew", ICON.users, "Crew")}</div></nav>`;
+}
+function tripDays(t) {
+  if (!t?.start || !t?.end) return [];
+  const out = []; let d = new Date(t.start + "T12:00:00"); const e = new Date(t.end + "T12:00:00");
+  while (d <= e && out.length < 60) { out.push(d.toISOString().slice(0, 10)); d.setDate(d.getDate() + 1); }
+  return out;
+}
+function payButtons(person, amount, cur, note) {
+  const p = person.kitty ? personById(S.trip.kitty?.holder) : person;
+  const pay = [], h = s => encodeURIComponent(String(s).replace(/^@/, "").trim());
+  if (p.venmo) pay.push(`<a class="btn small" target="_blank" rel="noopener" href="https://venmo.com/?txn=pay&recipients=${h(p.venmo)}&amount=${amount.toFixed(2)}&note=${encodeURIComponent(note)}">Venmo</a>`);
+  if (p.revolut) pay.push(`<a class="btn small" target="_blank" rel="noopener" href="https://revolut.me/${h(p.revolut)}">Revolut</a>`);
+  if (p.paypal) pay.push(`<a class="btn small" target="_blank" rel="noopener" href="https://paypal.me/${h(p.paypal)}/${amount.toFixed(2)}${cur}">PayPal</a>`);
+  if (p.zelle) pay.push(`<button class="btn small" data-act="copy" data-text="${esc(p.zelle)}">Zelle: copy ${esc(p.zelle)}</button>`);
+  if (p.other) pay.push(`<button class="btn small" data-act="copy" data-text="${esc(p.other)}">Copy ${esc(p.other.length > 22 ? p.other.slice(0, 20) + "..." : p.other)}</button>`);
+  if (!pay.length && p.id && !p.kitty) pay.push(`<button class="btn small ghost" data-act="edit-person" data-pid="${p.id}">Add ${esc(dn(p))}'s payment details</button>`);
+  return pay.join("");
+}
+function kittyStats(bal) { const b = bal[KITTY] || { paid: 0, recv: 0, sent: 0 }; const inn = b.recv, spent = b.paid, out = b.sent; return { inn, spent, out, left: inn - spent - out }; }
+function kittyCard(bal) {
+  if (!kittyOn()) return "";
+  const cur = tripCur(), k = kittyStats(bal), low = +S.trip.kitty.low || 0;
+  const pct = k.inn > 0 ? Math.max(0, Math.min(100, k.left / k.inn * 100)) : 0;
+  const isLow = k.inn > 0 && (low ? k.left < low : pct < 15);
+  return `<div class="card kitty ${isLow ? "low" : ""}">
+    <div class="row"><div class="grow"><div class="label">${esc(potName())}${S.trip.kitty.holder ? " · held by " + esc(short(S.trip.kitty.holder)) : ""}</div>
+      <div style="font:800 32px/1 var(--display)" class="num ${k.left < 0 ? "bad" : ""}">${fmt(k.left, cur)}</div>
+      <div class="muted num" style="font-size:12.5px">${fmt(k.inn, cur)} in · ${fmt(k.spent, cur)} spent${k.out ? " · " + fmt(k.out, cur) + " paid back" : ""}</div></div>
+      <div class="stack" style="gap:6px"><button class="btn small primary" data-act="kitty-topup">Top up</button><button class="btn small ghost" data-act="kitty-spend">Spend</button></div></div>
+    <button class="link" data-act="kitty-setup" style="font-size:12.5px;justify-self:start">Pot settings</button>
+    <div class="gauge"><span style="width:${pct}%"></span></div>
+    ${isLow ? `<div class="bad" style="font-size:13px;font-weight:600">Running low. Time for a top up.</div>` : ""}
+  </div>`;
+}
+function renderFeed(bal) {
+  const cur = tripCur();
+  const inbox = S.inbox.length ? `<div class="section"><div class="section-head"><span class="label">Receipts to review</span><span class="muted" style="font-size:13px">${S.inbox.length}</span></div>
+    ${S.inbox.map(r => `<div class="card inbox-card"><img class="thumb" src="${r.thumb}" alt="">
+      <div class="grow" style="min-width:0"><div style="font-weight:600">${r.status === "reading" ? "Reading receipt" : r.status === "error" ? "Could not read" : esc(r.data?.description || r.data?.merchant || "Receipt")}</div>
+      <div class="muted" style="font-size:13px">${r.status === "reading" ? '<span class="spinner" style="width:12px;height:12px;vertical-align:-2px"></span> Claude is reading it' : r.status === "error" ? esc(r.error) : fmt(r.data?.total, r.data?.currency || cur) + (r.data?.date ? " · " + esc(shortDate(r.data.date)) : "")}</div></div>
+      ${r.status === "reading" ? "" : `<button class="btn small primary" data-act="review" data-id="${r.id}">Review</button>`}</div>`).join("")}</div>` : "";
+  const debtors = Object.entries(bal).filter(([k, v]) => k !== KITTY && v.net < -0.5).sort((a, b) => a[1].net - b[1].net);
+  const nudge = S.people.length > 1 ? `<div class="section"><div class="nudge"><div class="grow">${debtors.length && S.expenses.length > 2
+      ? `<div class="label" style="color:var(--fg);opacity:.7">Next round is on</div><div style="font:800 24px/1.1 var(--display);text-transform:uppercase">${esc(short(debtors[0][0]))}</div><div class="muted" style="font-size:13px">Furthest behind at ${fmt(-debtors[0][1].net, cur)}</div>`
+      : `<div class="label" style="color:var(--fg);opacity:.7">Round time?</div><div style="font:800 24px/1.1 var(--display);text-transform:uppercase">Who's buying</div>`}</div>
+    <div class="stack" style="gap:6px"><button class="btn small primary" data-act="spin">Spin</button>${S.settings.tease && debtors.length && S.expenses.length > 2 ? `<button class="btn small ghost" data-act="tease" data-pid="${debtors[0][0]}">Roast</button>` : ""}</div></div></div>` : "";
+  const kitty = kittyOn() ? `<div class="section">${kittyCard(bal)}</div>` : "";
+  if (!S.expenses.length) return `${inbox}${kitty}<div class="section"><div class="card empty">${ICON.ticket}<b>No expenses yet</b><span class="muted">Tap the plus to snap a receipt, pick photos, paste a text, or type it in.</span><button class="btn primary" data-act="add">${ICON.plus} Add the first one</button></div></div>`;
+  const sorted = [...S.expenses].sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.createdAt || 0) - (a.createdAt || 0));
+  const big = bigThreshold();
+  let html = "", lastDay = null;
+  for (const e of sorted) {
+    const d = e.date || "";
+    if (d !== lastDay) {
+      const dayTot = sorted.filter(x => (x.date || "") === d).reduce((s, x) => s + expTotal(x), 0);
+      html += `<div class="day-head"><span class="label">${esc(dateLabel(d))}</span><span class="label num">${fmt(dayTot, cur)}</span></div>`; lastDay = d;
+    }
+    const payers = Object.keys(payerMap(e));
+    const nPart = Object.keys(shareMap(e)).length;
+    const who = payers.length > 1 ? `${payers.length} people paid` : `${esc(short(payers[0]))} paid`;
+    html += `<button class="exp" data-act="exp" data-id="${e.id}"><span class="cat">${ICON.cat[e.category] || ICON.cat.Other}</span>
+      <span style="min-width:0"><div class="t">${esc(e.description || e.category || "Expense")}</div><div class="s">${who} · ${nPart === S.people.length ? "everyone" : nPart + " split"}${e.hasReceipt ? " · receipt" : ""}</div></span>
+      <span class="amt num">${fmt(expTotal(e), cur)}${e.currency && e.currency !== cur ? `<small>${fmt(sign(e) * e.amount, e.currency)}</small>` : Math.abs(expTotal(e)) >= big ? `<small><span class="chip-flag hot">Big</span></small>` : e.refund ? `<small>refund</small>` : ""}</span></button>`;
+  }
+  return `${inbox}${kitty}${nudge}<div class="section" style="gap:8px">${html}</div>`;
+}
+function bigThreshold() {
+  if (S.trip?.bigSpender) return +S.trip.bigSpender;
+  const v = S.expenses.map(e => Math.abs(expTotal(e))).sort((a, b) => a - b);
+  const med = v.length ? v[Math.floor(v.length / 2)] : 0;
+  return Math.max(250, med * 3);
+}
+function unitBalances(bal) {
+  const U = unitsMap(), out = {};
+  for (const [pid, v] of Object.entries(bal)) {
+    const k = U[unitKey(pid)] ? unitKey(pid) : pid;
+    const o = (out[k] ||= { paid: 0, share: 0, sent: 0, recv: 0, net: 0 });
+    for (const f of ["paid", "share", "sent", "recv", "net"]) o[f] += v[f];
+  }
+  return out;
+}
+function renderSettle(bal) {
+  const cur = tripCur(), t = S.trip;
+  const byHH = !!t.byHousehold && households().length > 0;
+  const U = unitsMap();
+  const B = byHH ? unitBalances(bal) : bal;
+  const label = k => byHH ? (U[k]?.label || short(k)) : (k === KITTY ? potName() : nameOf(k));
+  const lead = k => byHH ? (U[k]?.lead || k) : k;
+  const mode = t.settleMode || "fewest", hubP = t.hub || S.people[0]?.id;
+  const hub = byHH ? unitKey(hubP) : hubP;
+  const plan = settlePlan(B, mode, hub);
+  const keys = byHH ? Object.keys(U).filter(k => k !== KITTY) : S.people.map(p => p.id);
+  if (kittyOn()) keys.push(KITTY);
+  const max = Math.max(1, ...keys.map(k => Math.abs(B[k]?.net || 0)));
+  const rows = keys.map(k => { const v = B[k]?.net || 0; const w = Math.abs(v) / max * 50;
+    return `<div class="bal-row"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(label(k))}</span><span class="bal-track"><span class="bal-bar" style="${v >= 0 ? `left:50%;width:${w}%;background:var(--good)` : `right:50%;width:${w}%;background:var(--bad)`}"></span></span><span class="num ${v > .004 ? "good" : v < -.004 ? "bad" : "muted"}" style="text-align:right;font-weight:600">${sfmt(v, cur)}</span></div>`; }).join("");
+  const tickets = plan.length ? plan.map(x => {
+    const from = lead(x.from), to = lead(x.to);
+    return `<div class="ticket"><div class="ft"><span>${esc(label(x.from))}</span>${ICON.arrow}<span>${esc(label(x.to))}</span></div><div class="a num">${fmt(x.amount, cur)}</div>
+      <div class="pay">${payButtons(personById(to), x.amount, cur, `${t.name} settle up`)}<button class="btn small primary" data-act="mark-paid" data-from="${from}" data-to="${to}" data-amount="${x.amount}">Mark paid</button></div></div>`;
+  }).join("") : `<div class="card empty"><b>All square</b><span class="muted">Nobody owes anybody. Enjoy the trip.</span></div>`;
+  const pays = [...S.payments].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return `${kittyOn() ? `<div class="section">${kittyCard(bal)}</div>` : ""}
+  <div class="section"><div class="section-head"><span class="label">Balances${byHH ? " by household" : ""}</span><span class="muted" style="font-size:12.5px">green is owed, red owes</span></div><div class="card stack">${rows || '<span class="muted">Add your crew first.</span>'}</div>
+    ${households().length ? `<label class="toggle"><span style="font-size:14px">Settle by household</span><button class="switch" role="switch" aria-checked="${byHH}" data-act="toggle-hh"></button></label>` : ""}</div>
+  <div class="section"><div class="section-head"><span class="label">Who pays whom</span>
+    <div class="chips"><button class="chip" aria-pressed="${mode !== "hub"}" data-act="settle-mode" data-mode="fewest">Fewest payments</button><button class="chip" aria-pressed="${mode === "hub"}" data-act="settle-mode" data-mode="hub">Through one person</button></div></div>
+    ${mode === "hub" ? `<div class="row"><span class="muted" style="font-size:13.5px">Everyone settles with</span><select class="input" style="width:auto;min-height:38px" id="hubSel">${S.people.map(p => `<option value="${p.id}" ${p.id === hubP ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></div>` : ""}
+    ${tickets}
+    ${S.settings.tease && plan.length ? `<button class="btn ghost block" data-act="tease-worst">Roast whoever owes the most</button>` : ""}
+    ${!kittyOn() ? `<button class="btn ghost block" data-act="kitty-setup">Start a slush fund or kitty</button>` : ""}
+  </div>
+  ${pays.length ? `<div class="section"><span class="label">Payments recorded</span><div class="card">${pays.map(p => `<div class="list-row"><div class="grow"><b>${esc(short(p.from))}</b> ${p.to === KITTY ? "put into" : "paid"} <b>${esc(short(p.to))}</b><div class="muted" style="font-size:12.5px">${esc(p.date ? shortDate(p.date) : "")}</div></div><span class="num" style="font-weight:600">${fmt(p.amount, cur)}</span>${p.createdBy === S.uid || isOrganizer() ? `<button class="btn small ghost" data-act="undo-pay" data-id="${p.id}">Undo</button>` : ""}</div>`).join("")}</div></div>` : ""}`;
+}
+function budgetTile() {
+  const b = +S.trip.budget; if (!b || !S.people.length) return "";
+  const cur = tripCur();
+  const dates = S.expenses.map(e => e.date).filter(Boolean).sort();
+  const day = dates.includes(todayISO()) ? todayISO() : dates.at(-1);
+  if (!day) return "";
+  const spent = S.expenses.filter(e => e.date === day).reduce((s, e) => s + expTotal(e), 0) / S.people.length;
+  const pct = Math.min(100, spent / b * 100);
+  return `<div class="section"><div class="card stack" style="gap:8px"><div class="section-head"><span class="label">Daily budget · ${esc(day === todayISO() ? "today" : shortDate(day))}</span><span class="num ${spent > b ? "bad" : "good"}" style="font-weight:600">${fmt(spent, cur, { whole: true })} of ${fmt(b, cur, { whole: true })}</span></div>
+    <div class="gauge"><span style="width:${pct}%;background:${spent > b ? "var(--bad)" : spent > b * .8 ? "var(--warn)" : "var(--good)"}"></span></div>
+    <span class="muted" style="font-size:12.5px">Per person. ${spent > b ? "Over by " + fmt(spent - b, cur, { whole: true }) + "." : fmt(b - spent, cur, { whole: true }) + " left to play with."}</span></div></div>`;
+}
+function renderStats(bal) {
+  const cur = tripCur();
+  const total = S.expenses.reduce((s, e) => s + expTotal(e), 0);
+  if (!S.expenses.length) return `<div class="section"><div class="card empty">${ICON.chart}<b>Nothing to chart yet</b><span class="muted">Charts fill in as expenses come in.</span></div></div>`;
+  const days = tripDays(S.trip);
+  const nDays = days.length || new Set(S.expenses.map(e => e.date).filter(Boolean)).size || 1;
+  const maxPS = Math.max(1, ...S.people.map(p => Math.max(bal[p.id]?.paid || 0, bal[p.id]?.share || 0)));
+  const ps = S.people.map(p => { const b = bal[p.id] || {}; return `<div class="bar-row"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(dn(p))}</span><span class="bar-pair"><span class="bar" style="width:${(b.paid || 0) / maxPS * 100}%"></span><span class="bar share" style="width:${(b.share || 0) / maxPS * 100}%"></span></span><span class="num" style="font-size:12.5px;text-align:right">${fmt(b.paid || 0, cur, { whole: true })}<br><span class="muted">${fmt(b.share || 0, cur, { whole: true })}</span></span></div>`; }).join("");
+  const byCat = {}; for (const e of S.expenses) byCat[e.category || "Other"] = (byCat[e.category || "Other"] || 0) + expTotal(e);
+  const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]); const maxC = Math.max(1, ...cats.map(c => c[1]));
+  const byDay = {}; for (const e of S.expenses) if (e.date) byDay[e.date] = (byDay[e.date] || 0) + expTotal(e);
+  const dayKeys = (days.length ? days : Object.keys(byDay).sort());
+  const maxD = Math.max(1, ...dayKeys.map(d => byDay[d] || 0));
+  const top = [...S.expenses].sort((a, b) => expTotal(b) - expTotal(a)).slice(0, 3);
+  const spender = S.people.map(p => [p, bal[p.id]?.paid || 0]).sort((a, b) => b[1] - a[1])[0];
+  return `<div class="section"><button class="wrapped-btn" data-act="wrapped"><span class="label" style="color:inherit;opacity:.8">Your trip, the highlights</span><b>Trip Wrapped</b><span>Story cards to drop in the group chat</span></button></div>
+    ${budgetTile()}
+    <div class="section"><div class="tiles">
+      <div class="tile"><span class="label">Trip total</span><span class="v num">${fmt(total, cur, { whole: true })}</span></div>
+      <div class="tile"><span class="label">Per person per day</span><span class="v num">${fmt(S.people.length ? total / S.people.length / nDays : 0, cur, { whole: true })}</span></div>
+      <div class="tile"><span class="label">Biggest spender</span><span class="v">${esc(spender ? dn(spender[0]) : "-")}</span><span class="muted num" style="font-size:13px">${spender ? fmt(spender[1], cur) + " fronted" : ""}</span></div>
+      <div class="tile"><span class="label">Expenses</span><span class="v num">${S.expenses.length}</span><span class="muted" style="font-size:13px">${S.expenses.filter(e => e.hasReceipt).length} with receipts</span></div>
+    </div></div>
+    <div class="section"><div class="section-head"><span class="label">Paid so far vs fair share</span><div class="legend"><span><i></i>Paid</span><span><i class="o"></i>Share</span></div></div><div class="card bars">${ps}</div></div>
+    <div class="section"><span class="label">By category</span><div class="card bars">${cats.map(([c, v]) => `<div class="bar-row"><span>${esc(c)}</span><span class="bar" style="width:${Math.max(0, v) / maxC * 100}%"></span><span class="num" style="font-size:12.5px">${fmt(v, cur, { whole: true })}</span></div>`).join("")}</div></div>
+    ${dayKeys.length ? `<div class="section"><span class="label">By day</span><div class="card"><div class="cols">${dayKeys.map(d => `<div class="col"><span class="num" style="font-size:10px">${byDay[d] ? fmt(byDay[d], cur, { whole: true }) : ""}</span><div class="c" style="height:${(byDay[d] || 0) / maxD * 100}%"></div><span>${esc(new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "narrow", day: "numeric" }))}</span></div>`).join("")}</div></div></div>` : ""}
+    <div class="section"><span class="label">Top three</span>${top.map(e => `<button class="exp" data-act="exp" data-id="${e.id}"><span class="cat">${ICON.cat[e.category] || ICON.cat.Other}</span><span style="min-width:0"><div class="t">${esc(e.description)}</div><div class="s">${esc(dateLabel(e.date))}</div></span><span class="amt num">${fmt(expTotal(e), cur)}</span></button>`).join("")}</div>
+    <div class="section"><button class="btn ghost block" data-act="export">${ICON.sheet} Export to spreadsheet</button></div>`;
+}
+function computeBadges(bal) {
+  const out = {}, people = S.people;
+  const add = (pid, title, why) => { if (pid && people.some(p => p.id === pid)) (out[pid] ||= []).push({ title, why }); };
+  if (!S.expenses.length) return out;
+  const cur = tripCur();
+  const topPaid = people.map(p => [p.id, bal[p.id]?.paid || 0]).sort((a, b) => b[1] - a[1])[0];
+  if (topPaid?.[1] > 0) add(topPaid[0], "Big Spender", `fronted ${fmt(topPaid[1], cur, { whole: true })}`);
+  const first = [...S.expenses].filter(e => e.paidBy !== KITTY).sort((a, b) => (a.date || "9").localeCompare(b.date || "9") || (a.createdAt || 0) - (b.createdAt || 0))[0];
+  if (first) add(first.paidBy, "First Round", `opened the tab with ${first.description}`);
+  const drinks = {}; for (const e of S.expenses) if (e.category === "Drinks" || e.category === "Tips") for (const [p, a] of Object.entries(payerMap(e))) drinks[p] = (drinks[p] || 0) + a;
+  const bar = Object.entries(drinks).filter(([p]) => p !== KITTY).sort((a, b) => b[1] - a[1])[0];
+  if (bar) add(bar[0], "Bar Boss", `bought ${fmt(bar[1], cur, { whole: true })} of drinks and tips`);
+  const snaps = {}; for (const e of S.expenses) if (e.hasReceipt && e.createdBy) snaps[e.createdBy] = (snaps[e.createdBy] || 0) + 1;
+  const snapTop = Object.entries(snaps).sort((a, b) => b[1] - a[1])[0];
+  const snapP = snapTop && people.find(p => p.uid === snapTop[0]);
+  if (snapP && snapTop[1] >= 2) add(snapP.id, "Snap Happy", `scanned ${snapTop[1]} receipts`);
+  const ghost = people.filter(p => (bal[p.id]?.share || 0) > 0 && (bal[p.id]?.net || 0) < -1).map(p => [p.id, (bal[p.id].paid + bal[p.id].sent) / bal[p.id].share]).sort((a, b) => a[1] - b[1])[0];
+  if (ghost && ghost[1] < .35) add(ghost[0], "Ghost Wallet", `covered ${Math.round(ghost[1] * 100)}% of their share so far`);
+  const square = people.filter(p => (bal[p.id]?.share || 0) > 0 && Math.abs(bal[p.id]?.net || 0) < 1);
+  square.forEach(p => add(p.id, "Square Deal", "dead even"));
+  if (kittyOn() && S.trip.kitty.holder) add(S.trip.kitty.holder, "Banker", "holds the " + potName());
+  return out;
+}
+function renderCrew(bal) {
+  const cur = tripCur(), badges = computeBadges(bal);
+  return `<div class="section"><div class="section-head"><span class="label">Crew</span><span class="muted" style="font-size:13px">${S.people.length} people${households().length ? " · " + households().length + (households().length > 1 ? " households" : " household") : ""}</span></div>
+    <div class="card">${S.people.map(p => `<div class="list-row"><span class="avatar" style="background:${p.color}">${esc(initials(p.nickname || p.name))}</span>
+      <div class="grow"><div style="font-weight:600">${esc(p.nickname || p.name)} ${p.uid ? `<span class="chip-flag">${p.uid === S.uid ? "You" : "Joined"}</span>` : ""}</div>
+      <div class="muted" style="font-size:12.5px">${[p.nickname && p.name, p.household && p.household.trim()].filter(Boolean).map(esc).join(" · ")}${p.nickname || p.household ? "<br>" : ""}${[p.venmo && "Venmo", p.revolut && "Revolut", p.zelle && "Zelle", p.paypal && "PayPal", p.other && "Other"].filter(Boolean).join(" · ") || "No payment details"}${p.away?.length ? " · out " + p.away.length + " day" + (p.away.length > 1 ? "s" : "") : ""}${+p.weight > 0 && +p.weight !== 1 ? " · counts as " + p.weight : ""}</div>
+      ${badges[p.id] ? `<div class="chips" style="gap:5px;margin-top:6px">${badges[p.id].map(b => `<span class="badge" title="${esc(b.why)}">${esc(b.title)}</span>`).join("")}</div>` : ""}</div>
+      <span class="num ${bal[p.id]?.net > .004 ? "good" : bal[p.id]?.net < -.004 ? "bad" : "muted"}" style="font-size:13px;font-weight:600">${sfmt(bal[p.id]?.net || 0, cur)}</span>
+      <button class="btn small ghost" data-act="edit-person" data-pid="${p.id}">Edit</button></div>`).join("") || '<span class="muted">No one yet.</span>'}</div>
+    <div class="two"><button class="btn primary" data-act="add-person">${ICON.plus} Add person</button><button class="btn ghost" data-act="paste-names">Paste names</button></div>
+    ${"contacts" in navigator && "select" in (navigator.contacts || {}) ? `<button class="btn ghost block" data-act="contacts">Pick from contacts</button>` : ""}
+    <button class="btn ghost block" data-act="invite">Invite with code or QR</button>
+    <p class="muted" style="font-size:12.5px;margin:0">Give a couple or family the same household name to settle them as one. Nicknames show everywhere in place of first names.</p>
+  </div>`;
+}
+
+/* ===================== Actions ===================== */
+const ACT = {
+  close: () => closeSheet(),
+  home: () => goHome(),
+  "open-trip": el => openTrip(el.dataset.id),
+  tab: el => { S.tab = el.dataset.tab; LS.set("tab", S.tab); render(); scrollTo(0, 0); },
+  add: () => openAddMenu(),
+  exp: el => openExpense(el.dataset.id),
+  review: el => { const r = S.inbox.find(x => x.id === el.dataset.id); if (r) openExpenseForm(draftFromReceipt(r), { inboxId: r.id }); },
+  "new-trip": () => openTripForm(),
+  "trip-settings": () => openTripForm(S.trip),
+  "join-trip": () => openJoin(),
+  "import-sheet": () => openImport(),
+  invite: () => openInvite(),
+  settings: () => openSettings(),
+  "install-help": () => openInstallHelp(),
+  claim: el => claimPerson(el.dataset.pid),
+  "add-me": () => openPersonForm(null, true),
+  "add-person": () => openPersonForm(),
+  "edit-person": el => openPersonForm(personById(el.dataset.pid)),
+  "paste-names": () => openPasteNames(),
+  contacts: () => pickContacts(),
+  "settle-mode": el => write(S.store.update("trips/" + S.tripId, { settleMode: el.dataset.mode, hub: S.trip.hub || myPid() || S.people[0]?.id || null })),
+  "mark-paid": el => markPaid(el.dataset.from, el.dataset.to, +el.dataset.amount),
+  "undo-pay": el => write(S.store.del(`trips/${S.tripId}/payments/${el.dataset.id}`)),
+  tease: el => tease(el.dataset.pid),
+  "tease-worst": () => { const bal = computeBalances(S.people, S.expenses, S.payments); const w = Object.entries(bal).sort((a, b) => a[1].net - b[1].net)[0]; if (w && w[1].net < 0) tease(w[0]); else toast("Nobody to roast. Everyone is square."); },
+  copy: el => copyText(el.dataset.text),
+  export: () => exportXlsx()
+};
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-act]"); if (!el) return;
+  const f = ACT[el.dataset.act]; if (f) { ac(); f(el, e); }
+});
+document.addEventListener("change", e => {
+  if (e.target.id === "hubSel") write(S.store.update("trips/" + S.tripId, { hub: e.target.value }));
+});
+async function copyText(t) { try { await navigator.clipboard.writeText(t); toast("Copied " + t); } catch { toast(t, 6000); } }
+function tease(pid) {
+  const bal = computeBalances(S.people, S.expenses, S.payments);
+  const v = bal[pid]?.net || 0;
+  if (v >= 0) { toast(`${short(pid)} is square. No roast today.`); return; }
+  const line = pick(TEASE)(short(pid), spokenMoney(v, tripCur()));
+  sfx("sad"); toast(line, 5000); setTimeout(() => say(line), 600);
+}
+function claimPerson(pid) {
+  LS.set("me:" + S.tripId, pid);
+  write(S.store.update(`trips/${S.tripId}/people/${pid}`, { uid: S.uid }));
+  sfx("paid"); toast("Welcome aboard, " + short(pid) + ".");
+}
+function markPaid(from, to, amount) {
+  const id = rid(10);
+  write(S.store.set(`trips/${S.tripId}/payments/${id}`, { from, to, amount: round2(amount), date: todayISO(), createdAt: Date.now(), createdBy: S.uid }));
+  sfx("paid"); toast(`${short(from)} paid ${short(to)} ${fmt(amount, tripCur())}`);
+}
+
+/* ---------- Add menu and intake ---------- */
+function openAddMenu() {
+  const ready = claudeReady();
+  openSheet(`${sheetHead("Add expense")}
+    <div class="add-grid">
+      <label class="add-tile"><span>${ICON.camera}</span><b>Camera</b><span>Snap a receipt now</span><input type="file" accept="image/*" capture="environment" hidden id="inCam"></label>
+      <label class="add-tile"><span>${ICON.photos}</span><b>Photos</b><span>Pick one or many from your library</span><input type="file" accept="image/*" multiple hidden id="inPhotos"></label>
+      <button class="add-tile" data-act="quick-text"><span>${ICON.text}</span><b>Paste or say it</b><span>Email, text message, or "315 euros, 35 from me..."</span></button>
+      <button class="add-tile" data-act="manual"><span>${ICON.pencil}</span><b>Type it in</b><span>Quick manual entry</span></button>
+    </div>
+    ${ready ? "" : `<p class="muted" style="font-size:13px;margin-top:12px">Receipt and text reading need the Claude relay from the setup guide. Until then photos attach to a manual entry.</p>`}`, {
+    skin: skinOf(S.trip),
+    onMount(sh) {
+      const onFiles = files => { closeSheet(); intakePhotos([...files]); };
+      $("#inCam", sh).onchange = e => e.target.files.length && onFiles(e.target.files);
+      $("#inPhotos", sh).onchange = e => e.target.files.length && onFiles(e.target.files);
+    }
+  });
+}
+ACT["quick-text"] = () => { closeSheet(); openQuickText(""); };
+ACT.manual = () => { closeSheet(); openExpenseForm(blankDraft()); };
+async function intakePhotos(files) {
+  if (!claudeReady()) { // no reader: attach the first photo to a manual entry
+    const d = blankDraft(); d._file = files[0]; d._thumb = await thumbFor(files[0]); openExpenseForm(d); return;
+  }
+  const items = [];
+  for (const f of files.slice(0, 20)) {
+    const r = { id: rid(6), file: f, thumb: await fileToJpeg(f, 240, .7), status: "reading" };
+    S.inbox.push(r); items.push(r);
+  }
+  S.tab = "feed"; render(); toast(files.length > 1 ? `Reading ${files.length} receipts` : "Reading receipt");
+  for (const r of items) { // one at a time keeps the relay calm
+    try { r.data = await readReceipt(r.file); r.status = "ready"; if (r.data && r.data.is_receipt === false) { r.status = "error"; r.error = "That does not look like a receipt. Enter it by hand."; } }
+    catch (e) { r.status = "error"; r.error = e.message; }
+    render();
+    if (items.length === 1 && r.status === "ready") openExpenseForm(draftFromReceipt(r), { inboxId: r.id });
+  }
+}
+function draftFromReceipt(r) {
+  const x = r.data || {}, cur = (x.currency || tripCur()).toUpperCase();
+  const d = blankDraft();
+  Object.assign(d, { description: x.description || x.merchant || "", amount: x.total ?? "", currency: CURRENCIES.includes(cur) ? cur : tripCur(), date: x.date || d.date, category: CATS.includes(x.category) ? x.category : "Other", merchant: x.merchant || "", source: "photo" });
+  if (Array.isArray(x.items) && x.items.length) d.items = x.items.filter(i => i && i.name).map(i => ({ name: String(i.name), amount: +i.amount || 0, pids: [] }));
+  d.tax = x.tax; d.tip = x.tip; d._file = r.file;
+  if (d.date) applyAway(d);
+  return d;
+}
+function openQuickText(prefill) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  openSheet(`${sheetHead("Paste or say it")}
+    <div class="stack">
+      <textarea class="input" id="qt" placeholder="Paste a receipt email, a text, or write it out:
+For the charter tips today, 315 euros total. 35 from me, 130 from Amy and Scott, 150 from Jim and Dane.">${esc(prefill)}</textarea>
+      <div class="row">${SR ? `<button class="btn ghost" id="qtMic">${ICON.mic} Talk</button>` : `<span class="muted" style="font-size:13px">Tip: tap the microphone on your keyboard to dictate.</span>`}<div class="grow"></div><button class="btn primary" id="qtGo">Read it</button></div>
+      <div id="qtOut"></div>
+    </div>`, {
+    skin: skinOf(S.trip),
+    onMount(sh) {
+      const ta = $("#qt", sh), out = $("#qtOut", sh);
+      if (SR) $("#qtMic", sh).onclick = () => {
+        const rec = new SR(); rec.lang = navigator.language || "en-US"; rec.interimResults = true; rec.continuous = false;
+        const base = ta.value ? ta.value + " " : "";
+        rec.onresult = ev => { ta.value = base + Array.from(ev.results).map(r => r[0].transcript).join(""); };
+        rec.onerror = () => toast("Could not hear that. Try the keyboard microphone instead.");
+        rec.start(); toast("Listening");
+      };
+      $("#qtGo", sh).onclick = async () => {
+        const text = ta.value.trim(); if (!text) return;
+        if (!claudeReady()) { toast("Text reading needs the Claude relay from the setup guide."); return; }
+        out.innerHTML = `<div class="row muted"><span class="spinner"></span> Claude is reading it</div>`;
+        try {
+          const res = await readText(text);
+          const list = (res.expenses || []).filter(x => x && +x.amount);
+          if (!list.length) { out.innerHTML = `<p class="muted">No amounts found. Try adding the total, like "84 euros".</p>`; return; }
+          const drafts = list.map(draftFromText);
+          if (drafts.length === 1) { closeSheet(); openExpenseForm(drafts[0]); return; }
+          out.innerHTML = `<div class="stack"><span class="label">${drafts.length} expenses found</span>${drafts.map((d, i) => `<button class="exp" data-qd="${i}"><span class="cat">${ICON.cat[d.category] || ICON.cat.Other}</span><span style="min-width:0"><div class="t">${esc(d.description)}</div><div class="s">${esc(d.date ? shortDate(d.date) : "")}</div></span><span class="amt num">${fmt(d.amount, d.currency)}</span></button>`).join("")}<span class="muted" style="font-size:13px">Tap each one to review and save.</span></div>`;
+          out.querySelectorAll("[data-qd]").forEach(b => b.onclick = () => { b.style.opacity = .4; openExpenseForm(drafts[+b.dataset.qd]); });
+        } catch (e) { out.innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
+      };
+    }
+  });
+}
+function draftFromText(x) {
+  const d = blankDraft();
+  const cur = String(x.currency || tripCur()).toUpperCase();
+  Object.assign(d, { description: x.description || "", amount: +x.amount || "", currency: CURRENCIES.includes(cur) ? cur : tripCur(), date: x.date || todayISO(), category: CATS.includes(x.category) ? x.category : "Other", source: "text" });
+  const unknown = new Set();
+  // payers: groups with amounts, split evenly inside a group
+  const payers = {};
+  for (const g of x.payers || []) {
+    const names = (g.names || []).filter(Boolean); if (!names.length) continue;
+    const each = (+g.amount || 0) / names.length;
+    for (const n of names) { const pid = matchPerson(n); if (pid) payers[pid] = round2((payers[pid] || 0) + each); else unknown.add(n); }
+  }
+  if (Object.keys(payers).length > 1) { d.multi = true; d.payers = payers; d.paidBy = Object.keys(payers)[0]; }
+  else if (Object.keys(payers).length === 1) d.paidBy = Object.keys(payers)[0];
+  if (Array.isArray(x.participants) && x.participants.length) {
+    d.split = {};
+    for (const n of x.participants) { const pid = matchPerson(n); if (pid) d.split[pid] = 1; else unknown.add(n); }
+    d._partNames = x.participants.map(n => String(n).toLowerCase());
+  }
+  for (const n of x.exclude || []) { const pid = matchPerson(n); if (pid) delete d.split[pid]; }
+  d.unknown = [...unknown];
+  d._pendingPayers = (x.payers || []);
+  return d;
+}
+
+/* ---------- Expense form ---------- */
+function defaultWeight(p) { return +p.weight > 0 ? +p.weight : 1; }
+function blankDraft() {
+  const me = myPid();
+  const d = { id: null, description: "", amount: "", currency: tripCur(), rate: "", date: todayISO(), category: "Food", paidBy: me || S.people[0]?.id || null, multi: false, payers: {}, split: {}, mode: "even", items: null, refund: false, note: "", source: "manual", unknown: [] };
+  for (const p of S.people) d.split[p.id] = defaultWeight(p);
+  applyAway(d);
+  return d;
+}
+function applyAway(d) {
+  for (const p of S.people) if (p.away?.includes(d.date) && d.split[p.id]) delete d.split[p.id];
+}
+function draftFromExpense(e) {
+  return { ...structuredClone(e), multi: !!(e.payers && Object.keys(e.payers).length > 1), payers: e.payers || {}, unknown: [], rate: e.rate || "" };
+}
+function openExpenseForm(d, opts = {}) {
+  const cur = tripCur();
+  if (!d.rate && d.currency !== cur) d.rate = S.trip.rates?.[d.currency] || "";
+  const sh = openSheet(`${sheetHead(d.id ? "Edit expense" : "New expense")}<div id="ef" class="stack"></div>`, { skin: skinOf(S.trip) });
+  const host = $("#ef", sh);
+  let showShares = Object.values(d.split).some(w => +w !== 1);
+  let dupWarned = false;
+  const people = () => S.people;
+  function sumPayers() { return Object.values(d.payers).reduce((s, v) => s + (+v || 0), 0); }
+  function draw() {
+    const nonTrip = d.currency !== cur;
+    const fav = [...new Set([cur, ...(S.trip.currencies || []), ...Object.keys(S.trip.rates || {}), d.currency])];
+    const curOpts = [...fav, ...CURRENCIES.filter(c => !fav.includes(c))].map(c => `<option ${c === d.currency ? "selected" : ""}>${c}</option>`).join("");
+    const parts = Object.keys(d.split).filter(k => +d.split[k] > 0);
+    const shares = shareMap({ ...d, amount: +d.amount || 0, rate: +d.rate || 0, currency: d.currency, refund: d.refund });
+    const awayToday = people().filter(p => p.away?.includes(d.date));
+    host.innerHTML = `
+      ${d.unknown?.length ? `<div class="warn-box"><span>Not in the crew yet: <b>${d.unknown.map(esc).join(", ")}</b></span><div class="row"><button class="btn small primary" id="addUnknown">Add them and redo payers</button></div></div>` : ""}
+      ${d._thumb || d._file ? `<img class="receipt-img" id="rimg" alt="Receipt" style="max-height:220px;object-fit:contain;background:var(--surface)">` : ""}
+      <div class="amount-row">${multiCur() || nonTrip || d.forceCur ? `<select id="fCur" aria-label="Currency">${curOpts}</select>` : `<button type="button" class="cur-tag mono" id="fCurTag" title="Use another currency">${cur}</button>`}<input class="amount-in num" id="fAmt" inputmode="decimal" placeholder="0.00" value="${esc(d.amount)}" aria-label="Amount"></div>
+      ${nonTrip ? `<div class="field"><span class="label">Rate: 1 ${d.currency} = ? ${cur}</span><div class="row"><input class="input num" id="fRate" inputmode="decimal" value="${esc(d.rate)}" placeholder="e.g. 1.08" style="max-width:140px"><span class="muted num" style="font-size:13.5px">${+d.amount && +d.rate ? "= " + fmt(+d.amount * +d.rate, cur) : "Locked when you save"}</span></div><span class="muted" style="font-size:12.5px">For card charges, you can enter what your card actually billed in ${cur} instead.</span></div>` : ""}
+      <input class="input" id="fDesc" placeholder="What was it? (Dinner at Ardbeg Embassy)" value="${esc(d.description)}">
+      <div class="two"><input class="input" type="date" id="fDate" value="${esc(d.date || "")}"><label class="toggle card" style="padding:0 12px;min-height:46px"><span>Refund</span><button class="switch" role="switch" aria-checked="${!!d.refund}" id="fRefund" aria-label="Refund"></button></label></div>
+      <div class="chips">${CATS.map(c => `<button class="chip" aria-pressed="${d.category === c}" data-cat="${c}">${c}</button>`).join("")}</div>
+      <div class="field"><div class="section-head"><span class="label">Paid by</span><button class="link" id="fMulti" style="font-size:13px">${d.multi ? "One payer" : "Several people paid"}</button></div>
+        ${d.multi ? `<div class="stack" style="gap:8px">${people().map(p => `<div class="row"><span class="avatar" style="background:${p.color};width:30px;height:30px;font-size:11px">${esc(initials(p.name))}</span><span class="grow">${esc(p.name)}</span><input class="input num" style="max-width:120px;min-height:40px" inputmode="decimal" data-payer="${p.id}" value="${esc(d.payers[p.id] ?? "")}" placeholder="0"></div>`).join("")}
+          <div class="split-sum num" id="paySum">${payerSumText()}</div></div>`
+          : `<div class="chips">${kittyOn() ? chipPerson(personById(KITTY), d.paidBy === KITTY, "", `data-payby="${KITTY}"`) : ""}${people().map(p => chipPerson(p, d.paidBy === p.id, "", `data-payby="${p.id}"`)).join("")}</div>`}
+      </div>
+      <div class="field"><div class="section-head"><span class="label">Split between</span><span class="row" style="gap:14px"><button class="link" id="fAll" style="font-size:13px">All</button><button class="link" id="fNone" style="font-size:13px">None</button><button class="link" id="fShares" style="font-size:13px">${showShares ? "Even split" : "Adjust shares"}</button></span></div>
+        ${showShares ? `<div class="stack" style="gap:8px">${people().map(p => `<div class="row"><span class="grow">${esc(p.name)}</span><span class="muted num" style="font-size:12.5px;min-width:70px;text-align:right">${shares[p.id] ? fmt(shares[p.id], cur) : ""}</span><span class="stepper"><button data-w="${p.id}" data-d="-0.5" aria-label="Less">-</button><span class="num" style="min-width:28px;text-align:center">${+d.split[p.id] || 0}</span><button data-w="${p.id}" data-d="0.5" aria-label="More">+</button></span></div>`).join("")}</div><span class="muted" style="font-size:12.5px">Shares weight the split. A couple can count as 2, a kid as 0.5, a single room as 2.</span>`
+          : `${households().length ? `<div class="chips" style="margin-bottom:8px">${households().map(u => `<button class="chip hh-chip" aria-pressed="${u.members.every(m => +d.split[m] > 0)}" data-hh="${esc(u.key)}">${esc(u.label)}</button>`).join("")}</div>` : ""}<div class="chips">${people().map(p => chipPerson(p, +d.split[p.id] > 0, "", `data-split="${p.id}"`)).join("")}</div>`}
+        ${awayToday.length ? `<span class="muted" style="font-size:12.5px">${awayToday.map(p => esc(dn(p))).join(", ")} marked out this day and left off.</span>` : ""}
+        <div class="split-sum num">${parts.length ? `${parts.length} people · ${Object.values(shares).length ? fmt(Math.max(...Object.values(shares)), cur) + (new Set(Object.values(shares).map(v => v.toFixed(2))).size > 1 ? " max each" : " each") : ""}` : "Pick at least one person"}</div>
+      </div>
+      ${d.items?.length ? `<div class="field"><div class="section-head"><span class="label">Receipt items</span><label class="row" style="gap:8px;font-size:13px">Split by item <button class="switch" role="switch" aria-checked="${d.mode === "items"}" id="fItems"></button></label></div>
+        ${d.mode === "items" ? `<span class="muted" style="font-size:12.5px">Tap who had each item. Untapped items split across everyone above. Tax and tip spread in proportion.</span>` : ""}
+        <div>${d.items.map((it, i) => `<div class="line-item"><span>${esc(it.name)}</span><span class="num" style="text-align:right">${fmt(it.amount, d.currency)}</span>${d.mode === "items" ? `<div class="chips">${people().filter(p => +d.split[p.id] > 0).map(p => `<button class="chip" aria-pressed="${it.pids?.includes(p.id) || false}" data-item="${i}" data-ip="${p.id}">${esc(dn(p))}</button>`).join("")}</div>` : ""}</div>`).join("")}</div></div>` : ""}
+      <input class="input" id="fNote" placeholder="Note (optional)" value="${esc(d.note || "")}">
+      <div id="dupBox"></div>
+      <button class="btn primary block" id="fSave">${d.id ? "Save changes" : "Save expense"}</button>
+      ${d.id && canEditExp(d) ? `<button class="btn danger block" id="fDel">Delete</button>` : ""}`;
+    wire();
+    if ($("#rimg", host)) { if (d._thumb) $("#rimg", host).src = d._thumb; else if (d._file) $("#rimg", host).src = URL.createObjectURL(d._file); }
+  }
+  function payerSumText() { const s = sumPayers(), a = +d.amount || 0; const left = round2(a - s); return `Entered ${fmt(s, d.currency)} of ${fmt(a, d.currency)}` + (Math.abs(left) > .004 ? ` · <span class="bad">${fmt(Math.abs(left), d.currency)} ${left > 0 ? "unassigned" : "over"}</span>` : ` · <span class="good">matches</span>`); }
+  function readInputs() {
+    d.amount = $("#fAmt", host).value.replace(",", ".").trim();
+    d.description = $("#fDesc", host).value; d.note = $("#fNote", host).value;
+    const nd = $("#fDate", host).value; if (nd !== d.date) { d.date = nd; if (!d.id) { for (const p of S.people) if (!(p.id in d.split) && !p.away?.includes(nd)) d.split[p.id] = defaultWeight(p); applyAway(d); } }
+    if ($("#fRate", host)) d.rate = $("#fRate", host).value.replace(",", ".").trim();
+    host.querySelectorAll("[data-payer]").forEach(i => { const v = i.value.replace(",", ".").trim(); if (v === "") delete d.payers[i.dataset.payer]; else d.payers[i.dataset.payer] = v; });
+  }
+  function wire() {
+    const re = () => { readInputs(); draw(); };
+    if ($("#fCurTag", host)) $("#fCurTag", host).onclick = () => { readInputs(); d.forceCur = true; draw(); };
+    host.querySelectorAll("[data-hh]").forEach(b => b.onclick = () => { readInputs(); const u = households().find(x => x.key === b.dataset.hh); if (!u) return; const on = u.members.every(m => +d.split[m] > 0); u.members.forEach(m => on ? delete d.split[m] : d.split[m] = defaultWeight(personById(m))); draw(); });
+    if ($("#fCur", host)) $("#fCur", host).onchange = e => { readInputs(); d.currency = e.target.value; d.rate = d.currency === cur ? "" : (S.trip.rates?.[d.currency] || ""); draw(); };
+    $("#fAmt", host).oninput = () => { if ($("#paySum", host)) { readInputs(); $("#paySum", host).innerHTML = payerSumText(); } };
+    $("#fDate", host).onchange = re;
+    $("#fRefund", host).onclick = () => { readInputs(); d.refund = !d.refund; draw(); };
+    host.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { readInputs(); d.category = b.dataset.cat; draw(); });
+    host.querySelectorAll("[data-payby]").forEach(b => b.onclick = () => { readInputs(); d.paidBy = b.dataset.payby; draw(); });
+    host.querySelectorAll("[data-payer]").forEach(i => i.oninput = () => { readInputs(); $("#paySum", host).innerHTML = payerSumText(); });
+    $("#fMulti", host).onclick = () => { readInputs(); d.multi = !d.multi; if (d.multi && !Object.keys(d.payers).length && d.paidBy) d.payers = { [d.paidBy]: d.amount }; draw(); };
+    host.querySelectorAll("[data-split]").forEach(b => b.onclick = () => { readInputs(); const id = b.dataset.split; if (+d.split[id] > 0) delete d.split[id]; else d.split[id] = defaultWeight(personById(id)); draw(); });
+    host.querySelectorAll("[data-w]").forEach(b => b.onclick = () => { readInputs(); const id = b.dataset.w; d.split[id] = Math.max(0, (+d.split[id] || 0) + +b.dataset.d); if (!d.split[id]) delete d.split[id]; draw(); });
+    $("#fAll", host).onclick = () => { readInputs(); S.people.forEach(p => d.split[p.id] = defaultWeight(p)); draw(); };
+    $("#fNone", host).onclick = () => { readInputs(); d.split = {}; draw(); };
+    $("#fShares", host).onclick = () => { readInputs(); showShares = !showShares; if (!showShares) for (const k in d.split) if (+d.split[k] > 0) d.split[k] = 1; draw(); };
+    if ($("#fItems", host)) $("#fItems", host).onclick = () => { readInputs(); d.mode = d.mode === "items" ? "even" : "items"; draw(); };
+    host.querySelectorAll("[data-item]").forEach(b => b.onclick = () => { readInputs(); const it = d.items[+b.dataset.item]; it.pids ||= []; const i = it.pids.indexOf(b.dataset.ip); i >= 0 ? it.pids.splice(i, 1) : it.pids.push(b.dataset.ip); draw(); });
+    if ($("#addUnknown", host)) $("#addUnknown", host).onclick = async () => {
+      readInputs();
+      const ops = d.unknown.map((n, i) => { const id = rid(8); return { op: "set", path: `trips/${S.tripId}/people/${id}`, data: newPerson(n, S.people.length + i) }; });
+      await write(S.store.batch(ops));
+      await new Promise(r => setTimeout(r, 400)); // let the crew list update
+      const names = new Map(ops.map(o => [o.data.name.toLowerCase(), o.path.split("/").pop()]));
+      const rebuilt = {};
+      for (const g of d._pendingPayers || []) { const ns = (g.names || []).filter(Boolean); for (const n of ns) { const pid = names.get(String(n).toLowerCase()) || matchPerson(n); if (pid) rebuilt[pid] = round2((rebuilt[pid] || 0) + (+g.amount || 0) / ns.length); } }
+      if (Object.keys(rebuilt).length > 1) { d.multi = true; d.payers = rebuilt; d.paidBy = Object.keys(rebuilt)[0]; }
+      else if (Object.keys(rebuilt).length === 1) { d.multi = false; d.paidBy = Object.keys(rebuilt)[0]; }
+      for (const [n, id] of names) if (!d._partNames || d._partNames.includes(n)) d.split[id] = 1;
+      d.unknown = []; draw(); toast("Added to the crew");
+    };
+    $("#fSave", host).onclick = () => save();
+    if ($("#fDel", host)) $("#fDel", host).onclick = () => confirmBox("Delete this expense?", "This removes it for everyone.", "Delete", () => {
+      write(S.store.del(`trips/${S.tripId}/expenses/${d.id}`)); write(S.store.del(`trips/${S.tripId}/receipts/${d.id}`)); closeSheet(); closeSheet(); toast("Deleted");
+    });
+  }
+  async function save() {
+    readInputs();
+    const amount = round2(parseFloat(d.amount));
+    if (!(amount > 0)) return toast("Enter the amount.");
+    if (d.currency !== cur && !(+d.rate > 0)) return toast(`Enter the ${d.currency} to ${cur} rate.`);
+    const split = Object.fromEntries(Object.entries(d.split).filter(([, w]) => +w > 0).map(([k, w]) => [k, +w]));
+    if (!Object.keys(split).length) return toast("Pick who shares this.");
+    let payers = null, paidBy = d.paidBy;
+    if (d.multi) {
+      payers = Object.fromEntries(Object.entries(d.payers).map(([k, v]) => [k, round2(parseFloat(v) || 0)]).filter(([, v]) => v > 0));
+      const s = Object.values(payers).reduce((a, b) => a + b, 0);
+      if (Math.abs(s - amount) > .01) return toast(`Payer amounts add to ${fmt(s, d.currency)}, not ${fmt(amount, d.currency)}.`);
+      paidBy = Object.keys(payers)[0];
+      if (Object.keys(payers).length === 1) payers = null;
+    }
+    if (!paidBy) return toast("Pick who paid.");
+    const rec = {
+      description: d.description.trim() || d.category, amount, currency: d.currency, rate: d.currency === cur ? null : +d.rate,
+      date: d.date || null, category: d.category, paidBy, payers, split, mode: d.items?.length && d.mode === "items" ? "items" : "even",
+      items: d.items?.length ? d.items.map(i => ({ name: i.name, amount: +i.amount || 0, pids: i.pids || [] })) : null,
+      refund: !!d.refund, note: d.note || "", source: d.source || "manual", merchant: d.merchant || null,
+      hasReceipt: !!(d.hasReceipt || d._file || d._thumb), updatedAt: Date.now()
+    };
+    // duplicate check on new expenses
+    if (!d.id && !dupWarned) {
+      const dup = S.expenses.find(e => Math.abs(expTotal(e) - expTotal(rec)) < .01 && (!e.date || !rec.date || Math.abs(new Date(e.date) - new Date(rec.date)) <= 864e5));
+      if (dup) {
+        dupWarned = true;
+        $("#dupBox", host).innerHTML = `<div class="warn-box"><span>Looks like a repeat: <b>${esc(short(dup.paidBy))}</b> already logged <b>${esc(dup.description)}</b> for ${fmt(expTotal(dup), cur)}${dup.date ? " on " + esc(shortDate(dup.date)) : ""}.</span><span class="muted" style="font-size:12.5px">Tap Save again to keep both.</span></div>`;
+        $("#dupBox", host).scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+    }
+    const id = d.id || rid(12);
+    if (!d.id) { rec.createdAt = Date.now(); rec.createdBy = S.uid; }
+    else { rec.createdAt = d.createdAt || Date.now(); rec.createdBy = d.createdBy || S.uid; }
+    write(S.store.set(`trips/${S.tripId}/expenses/${id}`, rec));
+    if (d._file || (d._thumb && !d.id)) {
+      const img = d._thumb && !d._file ? d._thumb : await thumbFor(d._file);
+      write(S.store.set(`trips/${S.tripId}/receipts/${id}`, { img, at: Date.now() }), "The receipt photo did not upload. The expense itself saved.");
+    }
+    if (rec.rate) write(S.store.update("trips/" + S.tripId, { ["rates." + rec.currency]: rec.rate }));
+    if (opts.inboxId) S.inbox = S.inbox.filter(r => r.id !== opts.inboxId);
+    closeSheet(); render();
+    const tot = Math.abs(expTotal(rec));
+    if (!d.id && !rec.refund && rec.paidBy !== KITTY && tot >= bigThreshold()) {
+      const who = short(rec.paidBy);
+      sfx("big"); stamp("Big spender", `${who} · ${fmt(tot, cur)}`);
+      if (S.settings.tease) setTimeout(() => say(pick(BIG)(who, spokenMoney(tot, cur), rec.description)), 700);
+    } else { sfx("add"); toast(d.id ? "Saved" : `Added ${fmt(expTotal(rec), cur)}`); }
+  }
+  draw();
+}
+function confirmBox(title, msg, verb, onYes) {
+  openSheet(`${sheetHead(title)}<p class="muted">${esc(msg)}</p><div class="two" style="margin-top:14px"><button class="btn ghost" data-act="close">Cancel</button><button class="btn primary" id="cfYes" style="background:var(--bad)">${esc(verb)}</button></div>`, { onMount(sh) { $("#cfYes", sh).onclick = () => { closeSheet(); onYes(); }; } });
+}
+async function openExpense(id) {
+  const e = S.expenses.find(x => x.id === id); if (!e) return;
+  const cur = tripCur(), shares = shareMap(e), payers = payerMap(e);
+  const sh = openSheet(`${sheetHead(e.description || "Expense")}
+    <div class="stack">
+      <div class="row"><div class="grow"><div style="font:800 40px/1 var(--display)" class="num">${fmt(expTotal(e), cur)}</div><div class="muted">${esc(dateLabel(e.date))} · ${esc(e.category)}${e.currency !== cur ? ` · ${fmt(sign(e) * e.amount, e.currency)} at ${e.rate}` : ""}${e.refund ? " · refund" : ""}</div></div></div>
+      <div id="rcpt"></div>
+      <div class="card"><span class="label">Paid</span>${Object.entries(payers).map(([p, a]) => `<div class="list-row"><span class="grow">${esc(nameOf(p))}</span><span class="num">${fmt(a, cur)}</span></div>`).join("")}</div>
+      <div class="card"><span class="label">Shares${e.mode === "items" ? " (by item)" : ""}</span>${Object.entries(shares).sort((a, b) => b[1] - a[1]).map(([p, a]) => `<div class="list-row"><span class="grow">${esc(nameOf(p))}${e.split?.[p] && +e.split[p] !== 1 ? ` <span class="chip-flag">x${e.split[p]}</span>` : ""}</span><span class="num">${fmt(a, cur)}</span></div>`).join("")}</div>
+      ${e.note ? `<p class="muted">${esc(e.note)}</p>` : ""}
+      ${canEditExp(e) ? `<button class="btn primary block" id="edE">Edit</button>` : `<p class="muted" style="font-size:13px">Only the person who added this, or the trip organizer, can change it.</p>`}
+    </div>`, { skin: skinOf(S.trip) });
+  if ($("#edE", sh)) $("#edE", sh).onclick = () => { closeSheet(); openExpenseForm(draftFromExpense(e)); };
+  if (e.hasReceipt) {
+    $("#rcpt", sh).innerHTML = `<div class="row muted"><span class="spinner"></span> Loading receipt</div>`;
+    const r = await S.store.get(`trips/${S.tripId}/receipts/${id}`).catch(() => null);
+    $("#rcpt", sh).innerHTML = r?.img ? `<img class="receipt-img" src="${r.img}" alt="Receipt">` : `<span class="muted">Receipt photo not available offline.</span>`;
+  }
+}
+
+/* ---------- Trips, people, invites ---------- */
+function newPerson(name, order) { return { name: String(name).trim(), nickname: "", household: "", order, color: PCOLORS[order % PCOLORS.length], venmo: "", revolut: "", zelle: "", paypal: "", other: "", uid: null, away: [], weight: 1 }; }
+function openTripForm(t) {
+  const editing = !!t;
+  t = t ? { ...t } : { name: "", from: "", to: "", start: todayISO(), end: "", currency: "USD", skin: "passport" };
+  const past = S.tripIds.filter(id => id !== S.tripId && S.trips[id]);
+  openSheet(`${sheetHead(editing ? "Trip settings" : "New trip")}
+    <div class="stack">
+      <input class="input" id="tName" placeholder="Trip name (Lisbon Golf 2026)" value="${esc(t.name)}">
+      <div class="two"><input class="input mono" id="tFrom" maxlength="4" placeholder="From (DTW)" value="${esc(t.from || "")}" style="text-transform:uppercase"><input class="input mono" id="tTo" maxlength="4" placeholder="To (LIS)" value="${esc(t.to || "")}" style="text-transform:uppercase"></div>
+      <div class="two"><label class="field"><span class="label">Start</span><input class="input" type="date" id="tStart" value="${esc(t.start || "")}"></label><label class="field"><span class="label">End</span><input class="input" type="date" id="tEnd" value="${esc(t.end || "")}"></label></div>
+      <label class="toggle"><span>Multiple currencies<br><span class="muted" style="font-size:12.5px">Off keeps it simple: one currency, no rates. A receipt in another currency still asks.</span></span><button type="button" class="switch" role="switch" aria-checked="${!!t.multiCurrency}" id="tMulti"></button></label>
+      <label class="field"><span class="label">Trip currency</span><select class="input" id="tCur">${CURRENCIES.map(c => `<option ${c === t.currency ? "selected" : ""}>${c}</option>`).join("")}</select></label>
+      <div class="field"><span class="label">Look</span><div class="chips">${SKINS.map(([k, n]) => `<button class="chip" aria-pressed="${t.skin === k}" data-skin-pick="${k}">${n}</button>`).join("")}</div></div>
+      ${!editing && past.length ? `<label class="field"><span class="label">Bring the crew from</span><select class="input" id="tCrew"><option value="">Start fresh</option>${past.map(id => `<option value="${id}">${esc(S.trips[id].name)}</option>`).join("")}</select></label>` : ""}
+      <label class="field"><span class="label">Daily budget per person (optional)</span><input class="input num" id="tBudget" inputmode="decimal" placeholder="e.g. 150" value="${esc(t.budget || "")}"></label>
+      ${editing ? `<label class="field"><span class="label">Big spender alert at (${esc(t.currency)})</span><input class="input num" id="tBig" inputmode="decimal" placeholder="Auto" value="${esc(t.bigSpender || "")}"></label>
+        ${Object.keys(t.rates || {}).length ? `<div class="field"><span class="label">Saved exchange rates</span><span class="muted" style="font-size:13px">${Object.entries(t.rates).map(([c, r]) => `1 ${c} = ${r} ${t.currency}`).join(" · ")}. New expenses start from these; each expense keeps the rate it was saved with.</span></div>` : ""}` : ""}
+      <button class="btn primary block" id="tSave">${editing ? "Save" : "Create trip"}</button>
+      ${editing ? `<button class="btn ghost block" data-act="export">${ICON.sheet} Export to spreadsheet</button>
+        <button class="btn ghost block" id="tLeave">Remove from this phone</button>
+        ${isOrganizer() ? `<button class="btn danger block" id="tDel">Delete trip for everyone</button>` : ""}` : ""}
+    </div>`, {
+    skin: t.skin,
+    onMount(sh) {
+      $("#tMulti", sh).onclick = e => { t.multiCurrency = !t.multiCurrency; e.currentTarget.setAttribute("aria-checked", t.multiCurrency); };
+      sh.querySelectorAll("[data-skin-pick]").forEach(b => b.onclick = () => { t.skin = b.dataset.skinPick; sh.dataset.skin = t.skin; sh.querySelectorAll("[data-skin-pick]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
+      $("#tSave", sh).onclick = async () => {
+        const rec = { name: $("#tName", sh).value.trim() || "Trip", from: $("#tFrom", sh).value.trim().toUpperCase(), to: $("#tTo", sh).value.trim().toUpperCase(), start: $("#tStart", sh).value || null, end: $("#tEnd", sh).value || null, currency: $("#tCur", sh).value, skin: t.skin || "passport", multiCurrency: !!t.multiCurrency, budget: parseFloat($("#tBudget", sh).value) || null };
+        if (editing) {
+          if ($("#tBig", sh)) rec.bigSpender = parseFloat($("#tBig", sh).value) || null;
+          write(S.store.update("trips/" + S.tripId, rec)); closeSheet(); toast("Saved"); return;
+        }
+        let id = rid(6); while (await S.store.get("trips/" + id).catch(() => null)) id = rid(6);
+        Object.assign(rec, { createdBy: S.uid, createdAt: Date.now(), settleMode: "fewest", hub: null, rates: {} });
+        const ops = [{ op: "set", path: "trips/" + id, data: rec }];
+        const from = $("#tCrew", sh)?.value;
+        if (from) {
+          const src = await new Promise(res => { const un = S.store.sub(`trips/${from}/people`, docs => { setTimeout(() => un()); res(docs); }); });
+          src.forEach((p, i) => ops.push({ op: "set", path: `trips/${id}/people/${p.id}`, data: { ...newPerson(p.name, i), nickname: p.nickname || "", household: p.household || "", color: p.color, venmo: p.venmo || "", revolut: p.revolut || "", zelle: p.zelle || "", paypal: p.paypal || "", other: p.other || "", uid: p.uid || null, weight: p.weight || 1 } }));
+        }
+        await write(S.store.batch(ops));
+        S.tripIds.push(id); LS.set("trips", S.tripIds); S.trips[id] = rec; watchTrip(id);
+        closeSheet(); S.tab = from ? "feed" : "crew"; openTrip(id); sfx("paid");
+        toast(from ? "Trip created with your crew" : "Trip created. Add your crew next.");
+      };
+      if ($("#tLeave", sh)) $("#tLeave", sh).onclick = () => { S.tripIds = S.tripIds.filter(x => x !== S.tripId); LS.set("trips", S.tripIds); S.unsubTrips[S.tripId]?.(); delete S.unsubTrips[S.tripId]; closeSheet(); goHome(); toast("Removed from this phone. Rejoin any time with the code."); };
+      if ($("#tDel", sh)) $("#tDel", sh).onclick = () => confirmBox("Delete this trip?", "Every expense, receipt and payment goes with it, for everyone. Export first if you want a record.", "Delete trip", async () => {
+        const base = "trips/" + S.tripId;
+        const ops = [...S.expenses.map(e => ({ op: "del", path: `${base}/expenses/${e.id}` })), ...S.expenses.filter(e => e.hasReceipt).map(e => ({ op: "del", path: `${base}/receipts/${e.id}` })), ...S.payments.map(p => ({ op: "del", path: `${base}/payments/${p.id}` })), ...S.people.map(p => ({ op: "del", path: `${base}/people/${p.id}` })), { op: "del", path: base }];
+        const id = S.tripId; await write(S.store.batch(ops));
+        S.tripIds = S.tripIds.filter(x => x !== id); LS.set("trips", S.tripIds); closeSheet(); goHome(); toast("Trip deleted");
+      });
+    }
+  });
+}
+function openJoin() {
+  openSheet(`${sheetHead("Join a trip")}<div class="stack"><p class="muted" style="margin:0">Ask the organizer for the 6-letter trip code, or scan their QR code with your camera.</p><input class="input mono" id="jc" maxlength="8" placeholder="TRIP CODE" style="text-transform:uppercase;font-size:22px;text-align:center;letter-spacing:.2em"><button class="btn primary block" id="jGo">Join</button></div>`, { onMount(sh) { $("#jGo", sh).onclick = () => { const c = $("#jc", sh).value; closeSheet(); joinTrip(c); }; } });
+}
+async function openInvite() {
+  const url = location.origin + location.pathname + "?join=" + S.tripId;
+  const sh = openSheet(`${sheetHead("Invite your crew")}
+    <div class="stack" style="text-align:center">
+      <div class="qr" id="qrBox"><span class="spinner"></span></div>
+      <div><div class="label">Trip code</div><div style="font:800 44px/1 var(--display);letter-spacing:.12em">${esc(S.tripId)}</div></div>
+      <div class="two"><button class="btn" data-act="copy" data-text="${esc(url)}">Copy link</button>${navigator.share ? `<button class="btn primary" id="shareInv">Share</button>` : `<button class="btn" data-act="copy" data-text="${esc(S.tripId)}">Copy code</button>`}</div>
+      <p class="muted" style="font-size:13.5px;text-align:left;margin:0">On iPhone, friends open the link, add the app to their Home Screen, open it from there, then tap Join with code. On Android they can join straight from the link. Once in, they tap their name to claim it.</p>
+    </div>`, { skin: skinOf(S.trip) });
+  if ($("#shareInv", sh)) $("#shareInv", sh).onclick = () => navigator.share({ title: S.trip.name, text: `Join our ${S.trip.name} tab. Trip code ${S.tripId}.`, url }).catch(() => {});
+  try {
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js");
+    const q = window.qrcode(0, "M"); q.addData(url); q.make();
+    $("#qrBox", sh).innerHTML = q.createSvgTag({ scalable: true, margin: 0 });
+  } catch { $("#qrBox", sh).innerHTML = `<span class="muted">QR unavailable offline</span>`; }
+}
+function loadScript(src) { return new Promise((res, rej) => { if (document.querySelector(`script[src="${src}"]`)) return res(); const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.append(s); }); }
+function openPersonForm(p, claimSelf) {
+  const editing = !!p; p = p ? { ...p } : newPerson("", S.people.length);
+  const days = tripDays(S.trip);
+  p.away ||= [];
+  openSheet(`${sheetHead(editing ? p.name : claimSelf ? "Add yourself" : "Add person")}
+    <div class="stack">
+      <input class="input" id="pN" placeholder="Name" value="${esc(p.name)}">
+      <div class="two"><input class="input" id="pNick" placeholder="Nickname (Big Dog)" value="${esc(p.nickname || "")}"><input class="input" id="pHH" list="hhList" placeholder="Household (The Browns)" value="${esc(p.household || "")}"></div>
+      <datalist id="hhList">${[...new Set(S.people.map(x => x.household?.trim()).filter(Boolean))].map(h => `<option value="${esc(h)}">`).join("")}</datalist>
+      <span class="label" style="margin-top:4px">Get paid by</span>
+      <input class="input" id="pV" placeholder="Venmo username (@name)" value="${esc(p.venmo || "")}" autocapitalize="off">
+      <input class="input" id="pR" placeholder="Revolut username (revolut.me/...)" value="${esc(p.revolut || "")}" autocapitalize="off">
+      <input class="input" id="pZ" placeholder="Zelle phone or email" value="${esc(p.zelle || "")}" autocapitalize="off">
+      <input class="input" id="pP" placeholder="PayPal.me username" value="${esc(p.paypal || "")}" autocapitalize="off">
+      <input class="input" id="pO" placeholder="Other: IBAN, Wise email, cash only..." value="${esc(p.other || "")}" autocapitalize="off">
+      <label class="toggle"><span>Counts as<br><span class="muted" style="font-size:12.5px">Default share weight. 2 for a couple sharing one tab.</span></span><span class="stepper"><button id="wM">-</button><span id="wV" class="num" style="min-width:28px;text-align:center">${p.weight || 1}</span><button id="wP">+</button></span></label>
+      ${days.length ? `<div class="field"><span class="label">Days out (left off that day's expenses)</span><div class="chips">${days.map(d => `<button class="chip" aria-pressed="${p.away.includes(d)}" data-away="${d}">${esc(new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric" }))}</button>`).join("")}</div></div>` : ""}
+      <button class="btn primary block" id="pSave">Save</button>
+      ${editing && isOrganizer() && !S.expenses.some(e => payerMap(e)[p.id] || shareMap(e)[p.id]) ? `<button class="btn danger block" id="pDel">Remove from trip</button>` : ""}
+    </div>`, {
+    skin: skinOf(S.trip),
+    onMount(sh) {
+      $("#wM", sh).onclick = () => { p.weight = Math.max(.5, (+p.weight || 1) - .5); $("#wV", sh).textContent = p.weight; };
+      $("#wP", sh).onclick = () => { p.weight = (+p.weight || 1) + .5; $("#wV", sh).textContent = p.weight; };
+      sh.querySelectorAll("[data-away]").forEach(b => b.onclick = () => { const d = b.dataset.away, i = p.away.indexOf(d); i >= 0 ? p.away.splice(i, 1) : p.away.push(d); b.setAttribute("aria-pressed", i < 0); });
+      $("#pSave", sh).onclick = () => {
+        const name = $("#pN", sh).value.trim(); if (!name) return toast("Enter a name.");
+        const rec = { ...p, name, nickname: $("#pNick", sh).value.trim(), household: $("#pHH", sh).value.trim(), venmo: $("#pV", sh).value.trim(), revolut: $("#pR", sh).value.trim().replace(/^https?:\/\/(www\.)?revolut\.me\//i, ""), zelle: $("#pZ", sh).value.trim(), paypal: $("#pP", sh).value.trim(), other: $("#pO", sh).value.trim() };
+        const id = p.id || rid(8); delete rec.id;
+        if (claimSelf) { rec.uid = S.uid; LS.set("me:" + S.tripId, id); }
+        write(S.store.set(`trips/${S.tripId}/people/${id}`, rec)); closeSheet(); toast(editing ? "Saved" : name + " added");
+      };
+      if ($("#pDel", sh)) $("#pDel", sh).onclick = () => { write(S.store.del(`trips/${S.tripId}/people/${p.id}`)); closeSheet(); };
+    }
+  });
+}
+function openPasteNames() {
+  openSheet(`${sheetHead("Paste names")}<div class="stack"><p class="muted" style="margin:0">Paste names from a group text, one per line or separated by commas.</p><textarea class="input" id="pn" placeholder="Amy, Scott, Jim, Dane"></textarea><button class="btn primary block" id="pnGo">Add to crew</button></div>`, {
+    onMount(sh) { $("#pnGo", sh).onclick = () => {
+      const have = new Set(S.people.map(p => p.name.toLowerCase()));
+      const names = [...new Set($("#pn", sh).value.split(/[\n,;]+| and /).map(s => s.replace(/^[\s\-*\d.)]+/, "").trim()).filter(n => n && n.length < 40 && !have.has(n.toLowerCase())))];
+      if (!names.length) return toast("No new names found.");
+      write(S.store.batch(names.map((n, i) => ({ op: "set", path: `trips/${S.tripId}/people/${rid(8)}`, data: newPerson(n, S.people.length + i) }))));
+      closeSheet(); toast(`Added ${names.length}`);
+    }; }
+  });
+}
+async function pickContacts() {
+  try {
+    const list = await navigator.contacts.select(["name", "tel", "email"], { multiple: true });
+    const have = new Set(S.people.map(p => p.name.toLowerCase()));
+    const ops = list.map((c, i) => ({ name: c.name?.[0], zelle: c.tel?.[0] || c.email?.[0] || "" })).filter(c => c.name && !have.has(c.name.toLowerCase()))
+      .map((c, i) => ({ op: "set", path: `trips/${S.tripId}/people/${rid(8)}`, data: { ...newPerson(c.name, S.people.length + i), zelle: c.zelle } }));
+    if (ops.length) { write(S.store.batch(ops)); toast(`Added ${ops.length}`); }
+  } catch { toast("Contacts were not shared."); }
+}
+function openSettings() {
+  const sw = (k, label, sub) => `<label class="toggle"><span>${label}<br><span class="muted" style="font-size:12.5px">${sub}</span></span><button class="switch" role="switch" aria-checked="${S.settings[k]}" data-set="${k}"></button></label>`;
+  openSheet(`${sheetHead("Settings")}<div class="card stack">
+    ${sw("sound", "Sounds", "Cha-ching on save, fanfare for big spenders")}
+    ${sw("voice", "Voice", "Read roasts and big spender calls out loud")}
+    ${sw("tease", "Teasing", "Roast buttons and big spender calls")}
+  </div>
+  <div class="section"><button class="btn ghost block" data-act="install-help">Add to Home Screen</button>
+  <p class="muted" style="font-size:12.5px">${S.store.mode === "cloud" ? "Synced with your crew." : "Single-phone mode. Sync is not set up."} ${claudeReady() ? "Receipt reading is on." : "Receipt reading is off."}</p></div>`, {
+    onMount(sh) { sh.querySelectorAll("[data-set]").forEach(b => b.onclick = () => { const k = b.dataset.set; S.settings[k] = !S.settings[k]; LS.set("settings", S.settings); b.setAttribute("aria-checked", S.settings[k]); if (k === "sound" && S.settings.sound) sfx("add"); render(); }); }
+  });
+}
+function openInstallHelp() {
+  openSheet(`${sheetHead("Home Screen")}<div class="stack">
+    <div class="card"><b>iPhone</b><ol style="margin:8px 0 0;padding-left:20px;display:grid;gap:6px"><li>Open this page in Safari.</li><li>Tap the Share button (square with an arrow).</li><li>Scroll down and tap Add to Home Screen, then Add.</li><li>Open ${esc(APP)} from the new icon. Use the icon from now on; trips you join in Safari stay in Safari.</li></ol></div>
+    <div class="card"><b>Android</b><ol style="margin:8px 0 0;padding-left:20px;display:grid;gap:6px"><li>Open this page in Chrome.</li><li>Tap the three-dot menu.</li><li>Tap Install app or Add to Home screen.</li></ol></div>
+  </div>`);
+}
+
+/* ---------- Spreadsheet import (your old format or this app's export) ---------- */
+function openImport() {
+  openSheet(`${sheetHead("Import spreadsheet")}<div class="stack">
+    <p class="muted" style="margin:0">Bring in an old trip. Works with your cost distribution layout (names across the top, a 1 under each person in on a bill) and with files this app exports.</p>
+    <label class="btn primary block">Choose .xlsx or .csv<input type="file" id="imF" accept=".xlsx,.xls,.csv" hidden></label><div id="imOut"></div></div>`, {
+    onMount(sh) { $("#imF", sh).onchange = async e => {
+      const f = e.target.files[0]; if (!f) return; const out = $("#imOut", sh);
+      out.innerHTML = `<div class="row muted"><span class="spinner"></span> Reading</div>`;
+      try {
+        await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
+        const wb = XLSX.read(await f.arrayBuffer(), { cellDates: true });
+        const parsed = parseSheet(wb);
+        if (!parsed) { out.innerHTML = `<p class="bad">Could not find a "Paid by" column. Check that the sheet has Description, Bill (or Amount), and Paid by headers.</p>`; return; }
+        const total = parsed.rows.reduce((s, r) => s + r.amount, 0);
+        out.innerHTML = `<div class="card stack"><b>${parsed.rows.length} expenses, ${parsed.names.length} people</b><span class="muted num">${fmt(total, "USD")} total · ${parsed.names.map(esc).join(", ")}</span>
+          <input class="input" id="imName" value="${esc(f.name.replace(/\.(xlsx|xls|csv)$/i, "").replace(/^[0-9a-f]{8}-/i, "").replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase()))}">
+          <select class="input" id="imCur">${CURRENCIES.map(c => `<option>${c}</option>`).join("")}</select>
+          <button class="btn primary block" id="imGo">Create trip</button></div>`;
+        $("#imGo", sh).onclick = async () => {
+          const id = rid(6), base = "trips/" + id;
+          const dates = parsed.rows.map(r => r.date).filter(Boolean).sort();
+          const ops = [{ op: "set", path: base, data: { name: $("#imName", sh).value || "Imported trip", from: "", to: "", start: dates[0] || null, end: dates.at(-1) || null, currency: $("#imCur", sh).value, skin: "passport", createdBy: S.uid, createdAt: Date.now(), settleMode: "fewest", hub: null, rates: {}, imported: true } }];
+          const pids = parsed.names.map((n, i) => { const pid = rid(8); ops.push({ op: "set", path: `${base}/people/${pid}`, data: newPerson(n, i) }); return pid; });
+          const byName = n => pids[parsed.names.findIndex(x => x.toLowerCase() === String(n).trim().toLowerCase())];
+          parsed.rows.forEach((r, i) => {
+            const split = {}; r.weights.forEach((w, j) => { if (w > 0) split[pids[j]] = w; });
+            let payers = null, paidBy = byName(r.paidBy);
+            if (r.payers) { payers = {}; for (const [n, a] of r.payers) { const p = byName(n); if (p) payers[p] = a; } paidBy = Object.keys(payers)[0]; }
+            if (!paidBy || !Object.keys(split).length) return;
+            ops.push({ op: "set", path: `${base}/expenses/${rid(12)}`, data: { description: r.desc, amount: round2(r.amount), currency: $("#imCur", sh).value, rate: null, date: r.date, category: guessCat(r.desc), paidBy, payers, split, mode: "even", items: null, refund: r.amount < 0, note: "", source: "import", hasReceipt: false, createdAt: Date.now() + i, createdBy: S.uid } });
+          });
+          await write(S.store.batch(ops.map(o => o.data.refund ? { ...o, data: { ...o.data, amount: Math.abs(o.data.amount) } } : o)));
+          S.tripIds.push(id); LS.set("trips", S.tripIds); watchTrip(id); closeSheet(); S.tab = "settle"; openTrip(id); sfx("paid"); toast("Imported. Tap your name to claim it.");
+        };
+      } catch (err) { console.error(err); out.innerHTML = `<p class="bad">Could not read that file.</p>`; }
+    }; }
+  });
+}
+function guessCat(s) {
+  s = String(s).toLowerCase();
+  if (/\b(cab|taxi|uber|lyft|train|flight|car|bus|ferry|gas|fuel|parking|toll)\b/.test(s)) return "Transport";
+  if (/hotel|room|airbnb|lodg|hostel|villa/.test(s)) return "Lodging";
+  if (/dinner|lunch|breakfast|food|restaurant|cafe|pizza/.test(s)) return "Food";
+  if (/bar|beer|wine|drink|pub/.test(s)) return "Drinks";
+  if (/tip/.test(s)) return "Tips";
+  if (/ticket|museum|tour|game|golf|palace|charter|show/.test(s)) return "Activities";
+  if (/grocer|market|store/.test(s)) return "Groceries";
+  if (/deposit/.test(s)) return "Deposit";
+  return "Other";
+}
+function parseSheet(wb) {
+  for (const sn of wb.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null });
+    let hr = -1, pc = -1;
+    for (let r = 0; r < Math.min(rows.length, 15) && hr < 0; r++) (rows[r] || []).forEach((v, c) => { if (hr < 0 && typeof v === "string" && /paid\s*by/i.test(v)) { hr = r; pc = c; } });
+    if (hr < 0) continue;
+    const H = rows[hr].map(v => typeof v === "string" ? v.toLowerCase() : "");
+    const find = re => H.findIndex(h => re.test(h));
+    let dc = find(/desc|item|what/), dt = find(/^date/), ac = find(/^bill$|^amount|^total|^cost|^price/);
+    if (ac < 0) ac = H.findIndex((h, i) => i !== dc && /amount|bill|cost/.test(h));
+    if (dc < 0) dc = pc - 3; if (ac < 0) ac = pc - 1;
+    const names = [], cols = [];
+    for (let c = pc + 1; c < (rows[hr].length || 0) + 1; c++) {
+      const a = rows[hr][c], b = hr > 0 ? rows[hr - 1][c] : null;
+      const n = typeof a === "string" && a.trim() && !/^(amount|rate|currency|category|id)/i.test(a) ? a : typeof b === "string" && b.trim() ? b : null;
+      if (!n) break; names.push(n.trim()); cols.push(c);
+    }
+    if (!names.length) continue;
+    const out = [];
+    for (let r = hr + 1; r < rows.length; r++) {
+      const row = rows[r] || [];
+      const desc = row[dc], amt = typeof row[ac] === "number" ? row[ac] : parseFloat(row[ac]);
+      if (typeof desc === "string" && /^total/i.test(desc.trim())) break;
+      if (!desc && !amt) continue;
+      if (!isFinite(amt) || !amt) continue;
+      const weights = cols.map(c => { const v = row[c]; return typeof v === "number" ? Math.abs(v) : parseFloat(v) || 0; });
+      let payers = null; const pb = row[pc];
+      if (typeof pb === "string" && /\d/.test(pb) && /;/.test(pb)) payers = pb.split(";").map(s => s.trim().match(/^(.*?)\s+([\d.]+)$/)).filter(Boolean).map(m => [m[1], +m[2]]);
+      let date = dt >= 0 ? row[dt] : null; if (date instanceof Date) { const x = new Date(+date + 6e4); date = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; } else if (typeof date === "string" && /^\d{4}-\d\d-\d\d/.test(date)) date = date.slice(0, 10); else date = null;
+      out.push({ desc: String(desc || "Expense").trim(), amount: amt, paidBy: typeof pb === "string" ? pb.trim() : "", payers, weights, date });
+    }
+    if (out.length) return { names, rows: out };
+  }
+  return null;
+}
+
+/* ---------- Export ---------- */
+async function exportXlsx() {
+  try {
+    toast("Building spreadsheet");
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
+    const cur = tripCur(), ppl = S.people;
+    const bal = computeBalances(ppl, S.expenses, S.payments);
+    const exps = [...S.expenses].sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.createdAt || 0) - (b.createdAt || 0));
+    const head = ["ID", "Description", "Date", "Category", "Original amount", "Currency", "Rate", `Amount (${cur})`, "Paid by", ...ppl.map(p => p.name)];
+    const rows = exps.map((e, i) => {
+      const sm = shareMap(e), pm = payerMap(e);
+      const pb = Object.keys(pm).length > 1 ? Object.entries(e.payers).map(([p, a]) => `${nameOf(p)} ${a}`).join("; ") : nameOf(e.paidBy);
+      return [i + 1, e.description, e.date || "", e.category, sign(e) * e.amount, e.currency, rateOf(e), round2(expTotal(e)), pb, ...ppl.map(p => sm[p.id] ? round2(sm[p.id]) : null)];
+    });
+    const totals = ["", "Total", "", "", "", "", "", round2(exps.reduce((s, e) => s + expTotal(e), 0)), "", ...ppl.map(p => round2(bal[p.id]?.share || 0))];
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.aoa_to_sheet([head, ...rows, [], totals]);
+    ws1["!cols"] = [{ wch: 4 }, { wch: 34 }, { wch: 11 }, { wch: 11 }, { wch: 10 }, { wch: 8 }, { wch: 7 }, { wch: 12 }, { wch: 22 }, ...ppl.map(() => ({ wch: 13 }))];
+    XLSX.utils.book_append_sheet(wb, ws1, "Expenses");
+    const bh = ["Name", "Paid", "Fair share", "Payments sent", "Payments received", "Net (+ owed to them)"];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([bh, ...[...ppl, ...(bal[KITTY] ? [personById(KITTY)] : [])].map(p => { const b = bal[p.id]; return [p.name, round2(b.paid), round2(b.share), round2(b.sent), round2(b.recv), round2(b.net)]; })]), "Balances");
+    const plan = settlePlan(bal, S.trip.settleMode || "fewest", S.trip.hub);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["From", "To", `Amount (${cur})`, "Venmo", "Zelle", "PayPal"], ...plan.map(x => { const to = personById(x.to); return [nameOf(x.from), to.name, x.amount, to.venmo || "", to.zelle || "", to.paypal || ""]; })]), "Settle up");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Date", "From", "To", "Amount"], ...S.payments.map(p => [p.date, nameOf(p.from), nameOf(p.to), p.amount])]), "Payments");
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+    const name = (S.trip.name || "trip").replace(/[^\w\- ]+/g, "").trim() + ".xlsx";
+    const file = new File([buf], name, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: name }).catch(() => {}); return; }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  } catch (e) { console.error(e); toast("Export needs a connection the first time. Try again online."); }
+}
+
+/* ===================== v2: households, kitty, wheel, Wrapped ===================== */
+ACT["toggle-hh"] = () => write(S.store.update("trips/" + S.tripId, { byHousehold: !S.trip.byHousehold }));
+ACT["kitty-setup"] = () => openKittySetup();
+ACT["kitty-topup"] = () => openKittyTopup();
+ACT["kitty-spend"] = () => { const d = blankDraft(); d.paidBy = KITTY; openExpenseForm(d); };
+ACT.spin = () => openWheel();
+ACT.wrapped = () => openWrapped();
+
+function openKittySetup() {
+  const cur = tripCur(), k = S.trip.kitty || {};
+  openSheet(`${sheetHead("Shared pot")}
+    <div class="stack">
+      <p class="muted" style="margin:0">A shared pot. Everyone puts money in up front, one person holds it and pays from it, and the app tracks what's left. Whatever remains at the end goes back to people when you settle.</p>
+      <div class="field"><span class="label">Call it</span><div class="chips" id="kNames">${["Slush Fund", "Kitty", "The Pot", "Beer Fund", "War Chest"].map(n => `<button class="chip" aria-pressed="${(k.name || "Kitty") === n}" data-kn="${n}">${n}</button>`).join("")}</div><input class="input" id="kName" value="${esc(k.name || "Kitty")}" maxlength="24"></div>
+      <label class="field"><span class="label">Who holds the money</span><select class="input" id="kH">${S.people.map(p => `<option value="${p.id}" ${p.id === (k.holder || myPid()) ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></label>
+      <label class="field"><span class="label">Starting amount each (${cur})</span><input class="input num" id="kA" inputmode="decimal" placeholder="e.g. 200"></label>
+      <label class="field"><span class="label">Warn me when it drops below (${cur})</span><input class="input num" id="kL" inputmode="decimal" placeholder="e.g. 100" value="${esc(k.low || "")}"></label>
+      <button class="btn primary block" id="kGo">${k.on ? "Save" : "Start the kitty"}</button>
+      ${k.on ? `<button class="btn ghost block" id="kOff">Turn off kitty</button>` : ""}
+    </div>`, {
+    skin: skinOf(S.trip),
+    onMount(sh) {
+      sh.querySelectorAll("[data-kn]").forEach(b => b.onclick = () => { $("#kName", sh).value = b.dataset.kn; sh.querySelectorAll("[data-kn]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
+      $("#kGo", sh).onclick = async () => {
+        const name = $("#kName", sh).value.trim() || "Kitty";
+        const holder = $("#kH", sh).value, each = round2(parseFloat($("#kA", sh).value) || 0), low = parseFloat($("#kL", sh).value) || null;
+        await write(S.store.update("trips/" + S.tripId, { kitty: { on: true, holder, low, name } }));
+        if (each > 0) recordTopups(S.people.map(p => p.id), each);
+        closeSheet(); sfx("paid"); toast(each > 0 ? `${name} started with ${fmt(each * S.people.length, cur)}` : `${name} is on`);
+      };
+      if ($("#kOff", sh)) $("#kOff", sh).onclick = () => { write(S.store.update("trips/" + S.tripId, { kitty: { ...S.trip.kitty, on: false } })); closeSheet(); };
+    }
+  });
+}
+function recordTopups(pids, each) {
+  const now = Date.now();
+  write(S.store.batch(pids.map((p, i) => ({ op: "set", path: `trips/${S.tripId}/payments/${rid(10)}`, data: { from: p, to: KITTY, amount: each, date: todayISO(), createdAt: now + i, createdBy: S.uid, kind: "topup" } }))));
+}
+function openKittyTopup() {
+  const cur = tripCur(), sel = new Set(S.people.map(p => p.id));
+  const sh = openSheet(`${sheetHead("Top up the " + potName().toLowerCase().replace(/^the /, ""))}
+    <div class="stack">
+      <div class="amount-row"><span class="cur-tag mono">${cur}</span><input class="amount-in num" id="tuA" inputmode="decimal" placeholder="50" aria-label="Amount each"></div>
+      <span class="label">Each from</span><div class="chips" id="tuC"></div>
+      <div class="split-sum num" id="tuS"></div>
+      <button class="btn primary block" id="tuGo">Record top up</button>
+    </div>`, { skin: skinOf(S.trip) });
+  const draw = () => {
+    $("#tuC", sh).innerHTML = S.people.map(p => chipPerson(p, sel.has(p.id), "", `data-tu="${p.id}"`)).join("");
+    sh.querySelectorAll("[data-tu]").forEach(b => b.onclick = () => { sel.has(b.dataset.tu) ? sel.delete(b.dataset.tu) : sel.add(b.dataset.tu); draw(); });
+    const a = parseFloat($("#tuA", sh).value) || 0; $("#tuS", sh).textContent = `${sel.size} people · ${fmt(a * sel.size, cur)} into the ${potName()}`;
+  };
+  $("#tuA", sh).oninput = draw; draw();
+  $("#tuGo", sh).onclick = () => {
+    const a = round2(parseFloat($("#tuA", sh).value) || 0); if (!(a > 0) || !sel.size) return toast("Enter an amount and pick people.");
+    recordTopups([...sel], a); closeSheet(); sfx("paid"); toast(`${potName()} +${fmt(a * sel.size, cur)}`);
+  };
+}
+
+/* ---------- Who's buying wheel ---------- */
+function openWheel() {
+  const bal = computeBalances(S.people, S.expenses, S.payments);
+  const byHH = households().length > 0 && !!S.trip.byHousehold;
+  const U = unitsMap();
+  const units = byHH ? Object.values(U).filter(u => u.key !== KITTY) : S.people.map(p => ({ key: p.id, label: dn(p), members: [p.id], lead: p.id }));
+  let mode = LS.get("wheelMode", "behind");
+  const sh = openSheet(`${sheetHead("Who's buying?")}
+    <div class="stack">
+      <div class="chips" style="justify-content:center">
+        <button class="chip" data-wm="behind">Who's behind</button><button class="chip" data-wm="luck">Pure luck</button><button class="chip" data-wm="rotation">Take turns</button>
+      </div>
+      <p class="muted" id="wHelp" style="margin:0;text-align:center;font-size:13px"></p>
+      <div class="wheel-box"><div class="wheel-ptr"></div><canvas id="wc" width="640" height="640"></canvas></div>
+      <button class="btn primary block" id="wSpin" style="min-height:54px;font-size:17px">Spin</button>
+      <div id="wRes"></div>
+    </div>`, { skin: skinOf(S.trip) });
+  const cv = $("#wc", sh), ctx = cv.getContext("2d");
+  const css = getComputedStyle(sh);
+  let rot = 0, segs = [], spinning = false;
+  const unitNet = u => u.members.reduce((s, m) => s + (bal[m]?.net || 0), 0);
+  const rounds = u => S.expenses.filter(e => e.category === "Drinks" && u.members.includes(e.paidBy)).length;
+  function weights() {
+    if (mode === "luck") return units.map(() => 1);
+    if (mode === "rotation") { const r = units.map(rounds), m = Math.min(...r); return r.map(x => x === m ? 1 : 0.0001); }
+    const nets = units.map(unitNet), scale = Math.max(1, ...nets.map(n => Math.abs(n)));
+    return nets.map(n => 1 + Math.max(0, -n) / scale * 3);
+  }
+  function layout() {
+    const w = weights(), tot = w.reduce((a, b) => a + b, 0); let a = 0;
+    segs = units.map((u, i) => { const span = w[i] / tot * Math.PI * 2; const s = { u, start: a, end: a + span, color: personById(u.lead).color || PCOLORS[i % PCOLORS.length] }; a += span; return s; });
+    $("#wHelp", sh).textContent = mode === "behind" ? "Bigger slice for whoever owes the most." : mode === "luck" ? "Everyone gets the same slice." : "Lands on whoever has bought the fewest drink rounds.";
+    sh.querySelectorAll("[data-wm]").forEach(b => b.setAttribute("aria-pressed", b.dataset.wm === mode));
+    draw();
+  }
+  function draw() {
+    const R = 310, c = 320; ctx.clearRect(0, 0, 640, 640);
+    ctx.save(); ctx.translate(c, c); ctx.rotate(rot);
+    for (const s of segs) {
+      if (s.end - s.start < .001) continue;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, R, s.start, s.end); ctx.closePath(); ctx.fillStyle = s.color; ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,.85)"; ctx.lineWidth = 4; ctx.stroke();
+      if (s.end - s.start > .12) { ctx.save(); ctx.rotate((s.start + s.end) / 2); ctx.fillStyle = "#fff"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+        ctx.font = `800 ${units.length > 8 ? 30 : 38}px "Big Shoulders Display", Impact, sans-serif`; ctx.fillText(String(s.u.label).toUpperCase().slice(0, 14), R - 22, 2); ctx.restore(); }
+    }
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(c, c, 46, 0, Math.PI * 2); ctx.fillStyle = css.getPropertyValue("--bg") || "#fff"; ctx.fill();
+    ctx.lineWidth = 8; ctx.strokeStyle = css.getPropertyValue("--accent") || "#f26b21"; ctx.stroke();
+  }
+  const segAtPointer = () => { const a = ((-Math.PI / 2 - rot) % (Math.PI * 2) + Math.PI * 4) % (Math.PI * 2); return segs.find(s => a >= s.start && a < s.end); };
+  sh.querySelectorAll("[data-wm]").forEach(b => b.onclick = () => { if (spinning) return; mode = b.dataset.wm; LS.set("wheelMode", mode); layout(); });
+  $("#wSpin", sh).onclick = () => {
+    if (spinning || !segs.length) return; spinning = true; ac(); $("#wRes", sh).innerHTML = "";
+    const w = weights(), tot = w.reduce((a, b) => a + b, 0); let r = Math.random() * tot, win = 0;
+    for (let i = 0; i < w.length; i++) { r -= w[i]; if (r <= 0) { win = i; break; } }
+    const s = segs[win], target = s.start + (s.end - s.start) * (.2 + Math.random() * .6);
+    const start = rot, final = start + Math.PI * 2 * (5 + Math.floor(Math.random() * 3)) + ((-Math.PI / 2 - target - start) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    const t0 = performance.now(), dur = matchMedia("(prefers-reduced-motion: reduce)").matches ? 600 : 4600;
+    let last = null;
+    const step = now => {
+      const t = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - t, 4);
+      rot = start + (final - start) * e; draw();
+      const cur = segAtPointer(); if (cur !== last) { last = cur; if (S.settings.sound) blip(1900, 0, .03, "square", .05); }
+      if (t < 1) requestAnimationFrame(step); else done(s.u);
+    };
+    requestAnimationFrame(step);
+  };
+  function done(u) {
+    spinning = false; sfx("big"); stamp(`Round's on ${u.label}`, "Fate has spoken");
+    if (S.settings.voice) setTimeout(() => say(pick([`This round is on ${u.label}!`, `Drinks are on ${u.label}.`, `The wheel has chosen ${u.label}. No refunds.`])), 500);
+    $("#wRes", sh).innerHTML = `<div class="two"><button class="btn ghost" id="wAgain">Spin again</button><button class="btn primary" id="wLog">Log the round</button></div>`;
+    $("#wAgain", sh).onclick = () => $("#wSpin", sh).click();
+    $("#wLog", sh).onclick = () => { closeSheet(); const d = blankDraft(); d.paidBy = u.lead; d.category = "Drinks"; d.description = "Round"; openExpenseForm(d); };
+  }
+  layout();
+}
+
+/* ---------- Trip Wrapped ---------- */
+function wrappedCards() {
+  const cur = tripCur(), bal = computeBalances(S.people, S.expenses, S.payments), t = S.trip;
+  const total = S.expenses.reduce((s, e) => s + expTotal(e), 0);
+  const byDay = {}; for (const e of S.expenses) if (e.date) byDay[e.date] = (byDay[e.date] || 0) + expTotal(e);
+  const dayList = Object.entries(byDay).sort((a, b) => b[1] - a[1]);
+  const nDays = tripDays(t).length || dayList.length || 1;
+  const cards = [];
+  cards.push({ k: "Trip Wrapped", big: t.name, sub: `${nDays} day${nDays > 1 ? "s" : ""}. ${S.people.length} people. ${S.expenses.length} expenses.` });
+  cards.push({ k: "All in", big: fmt(total, cur, { whole: true }), sub: `That's ${fmt(S.people.length ? total / S.people.length / nDays : 0, cur, { whole: true })} per person per day.` });
+  const top = S.people.map(p => [p, bal[p.id]?.paid || 0]).sort((a, b) => b[1] - a[1])[0];
+  if (top?.[1] > 0) cards.push({ k: "Big spender", big: dn(top[0]), sub: `Fronted ${fmt(top[1], cur, { whole: true })}. ${Math.round(top[1] / (total || 1) * 100)}% of the whole trip.` });
+  if (dayList.length > 1) {
+    const [d, v] = dayList[0]; const best = S.expenses.filter(e => e.date === d).sort((a, b) => expTotal(b) - expTotal(a))[0];
+    cards.push({ k: "Biggest day", big: new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "long" }), sub: `${fmt(v, cur, { whole: true })} gone. Headliner: ${best?.description || "?"}.` });
+  }
+  const bigE = [...S.expenses].sort((a, b) => expTotal(b) - expTotal(a))[0];
+  if (bigE) cards.push({ k: "Single biggest bill", big: fmt(expTotal(bigE), cur, { whole: true }), sub: `${bigE.description}, covered by ${Object.keys(payerMap(bigE)).map(short).join(" and ")}.` });
+  const drinks = S.expenses.filter(e => e.category === "Drinks"), dT = drinks.reduce((s, e) => s + expTotal(e), 0);
+  if (dT > 0) cards.push({ k: "The bar tab", big: fmt(dT, cur, { whole: true }), sub: `${drinks.length} round${drinks.length > 1 ? "s" : ""} on the books. Cheers.` });
+  if (dayList.length > 2) { const [d, v] = dayList.at(-1); cards.push({ k: "Thriftiest day", big: new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "long" }), sub: `Only ${fmt(v, cur, { whole: true })}. Someone was paying attention.` }); }
+  const badges = computeBadges(bal), list = [];
+  for (const p of S.people) for (const b of badges[p.id] || []) if (b.title !== "Square Deal") list.push([b.title, dn(p)]);
+  if (list.length) cards.push({ k: "Awards", list: list.slice(0, 7) });
+  const plan = settlePlan(bal, t.settleMode || "fewest", t.hub || S.people[0]?.id);
+  const worst = Object.entries(bal).filter(([k]) => k !== KITTY).sort((a, b) => a[1].net - b[1].net)[0];
+  cards.push(plan.length ? { k: "Still on the tab", big: `${plan.length} payment${plan.length > 1 ? "s" : ""} left`, sub: worst && worst[1].net < -1 ? `${short(worst[0])}, this one's mostly about you. ${fmt(-worst[1].net, cur)}.` : "Open Settle up to close it out." } : { k: "The tab", big: "All square", sub: "Everybody's even. Same crew next year?" });
+  return cards;
+}
+function openWrapped() {
+  const cards = wrappedCards();
+  const sh = openSheet(`${sheetHead("Wrapped")}
+    <div class="wr-track" id="wrT">${cards.map(c => `<div class="wr-card"><span class="wr-k">${esc(c.k)}</span>
+      ${c.list ? `<div class="wr-list">${c.list.map(([a, b]) => `<div><b>${esc(a)}</b><span>${esc(b)}</span></div>`).join("")}</div>` : `<div class="wr-big" style="${Math.max(...String(c.big).split(/\s+/).map(w => w.length)) > 8 ? "font-size:clamp(30px,9vw,46px)" : ""}">${esc(c.big)}</div>`}
+      <div class="wr-sub">${esc(c.sub || "")}</div></div>`).join("")}</div>
+    <div class="dots" id="wrD">${cards.map((_, i) => `<i class="${i ? "" : "on"}"></i>`).join("")}</div>
+    <div class="two" style="margin-top:14px"><button class="btn ghost" id="wrNext">Next</button><button class="btn primary" id="wrShare">Share this card</button></div>`, { skin: skinOf(S.trip) });
+  const tr = $("#wrT", sh); let idx = 0;
+  tr.onscroll = () => { const i = Math.round(tr.scrollLeft / (tr.clientWidth)); if (i !== idx) { idx = i; sh.querySelectorAll("#wrD i").forEach((d, j) => d.classList.toggle("on", j === idx)); if (S.settings.sound) blip(1200, 0, .05, "sine", .05); } };
+  $("#wrNext", sh).onclick = () => tr.scrollTo({ left: Math.min(cards.length - 1, idx + 1) * tr.clientWidth, behavior: "smooth" });
+  $("#wrShare", sh).onclick = () => shareCard(cards[idx], sh);
+  sfx("big");
+}
+async function shareCard(c, sh) {
+  try { await document.fonts.ready; } catch {}
+  const W = 1080, H = 1350, cv = document.createElement("canvas"); cv.width = W; cv.height = H; const x = cv.getContext("2d");
+  const cs = getComputedStyle(sh), v = n => cs.getPropertyValue(n).trim();
+  const g = x.createLinearGradient(0, 0, W * .6, H); g.addColorStop(0, v("--hero-a")); g.addColorStop(1, v("--hero-b")); x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.globalAlpha = .35; x.strokeStyle = v("--accent"); x.lineWidth = 80; x.beginPath(); x.arc(W - 40, H - 40, 260, 0, Math.PI * 2); x.stroke(); x.globalAlpha = 1;
+  const ink = v("--hero-ink"), muted = v("--hero-muted");
+  x.fillStyle = muted; x.font = '600 34px "Instrument Sans", Arial, sans-serif'; x.fillText(c.k.toUpperCase().split("").join(String.fromCharCode(8202)), 90, 140);
+  const wrap = (text, font, maxW, lh, y, color) => { x.font = font; x.fillStyle = color; const words = String(text).split(" "); let line = ""; for (const w of words) { const t2 = line ? line + " " + w : w; if (x.measureText(t2).width > maxW && line) { x.fillText(line, 90, y); y += lh; line = w; } else line = t2; } if (line) x.fillText(line, 90, y); return y + lh; };
+  let y = 480;
+  if (c.list) { y = 300; for (const [a, b] of c.list) { x.fillStyle = ink; x.font = '800 64px "Big Shoulders Display", Impact, sans-serif'; x.fillText(a.toUpperCase(), 90, y); x.font = '500 44px "Instrument Sans", Arial'; x.textAlign = "right"; x.fillText(b, W - 90, y); x.textAlign = "left"; y += 120; } }
+  else { const size = String(c.big).length > 14 ? 130 : 170; y = wrap(String(c.big).toUpperCase(), `800 ${size}px "Big Shoulders Display", Impact, sans-serif`, W - 180, size * .92, 520, ink); }
+  if (c.sub) wrap(c.sub, '500 50px "Instrument Sans", Arial, sans-serif', W - 260, 64, Math.max(y + 40, 900), ink);
+  x.fillStyle = muted; x.font = '800 40px "Big Shoulders Display", Impact, sans-serif'; x.fillText((S.trip.name + " · " + APP).toUpperCase(), 90, H - 90);
+  const blob = await new Promise(r => cv.toBlob(r, "image/png"));
+  const file = new File([blob], "trip-wrapped.png", { type: "image/png" });
+  if (navigator.canShare?.({ files: [file] })) { navigator.share({ files: [file] }).catch(() => {}); return; }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = file.name; document.body.append(a); a.click(); setTimeout(() => a.remove(), 1000);
+}
+
+/* ===================== Start ===================== */
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+addEventListener("popstate", () => { if (sheetStack.length) closeSheet(); });
+boot();
+</script>
+</body>
+</html>
