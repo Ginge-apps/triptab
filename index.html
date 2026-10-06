@@ -123,6 +123,11 @@ textarea.input{min-height:110px;resize:vertical}
 .amount-row{display:flex;align-items:center;gap:10px;border-bottom:2px solid var(--line);padding-bottom:4px}
 .amount-row select{border:0;background:var(--surface-2);border-radius:10px;padding:8px 10px;font:500 14px var(--mono)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.two>*,.row>*,.toggle>*,.field>*{min-width:0}
+.sheet{overflow-x:hidden}
+/* iPhone Safari zooms into any text box under 16px; keep them at 16 so screens never end up wider than the phone */
+input,select,textarea,.input{font-size:16px}
+.hint{font-size:12.5px;color:var(--muted)}
 .toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px}
 .switch{width:50px;height:30px;border-radius:999px;background:var(--surface-2);position:relative;border:1.5px solid var(--line);flex:none}
 .switch::after{content:"";position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;background:var(--muted);transition:transform .15s}
@@ -583,7 +588,7 @@ async function readReceipt(file) {
   const sys = "You read photos of receipts for a group travel expense app. Reply with only one JSON object, no prose.";
   const prompt = `Read this receipt. It may be a paper receipt, a card slip, or a screenshot of an app or email receipt (Uber, Lyft, Bolt, DoorDash, Uber Eats, Airbnb, booking sites). For app screenshots use the final charged total including fees and tip, and use the trip or order date shown. The trip currency is ${tripCur()}. Trip dates: ${S.trip.start || "?"} to ${S.trip.end || "?"}.
 Return JSON:
-{"is_receipt":true,"merchant":"","description":"short label like 'Dinner at Merchant' or 'Uber to airport'","date":"YYYY-MM-DD or null","currency":"ISO 4217 code","total":0,"subtotal":null,"tax":null,"tip":null,"category":"one of ${CATS.join("|")}","items":[{"name":"","amount":0}],"payment_note":"card brand / cash if shown, else null"}
+{"is_receipt":true,"merchant":"","description":"short label like 'Dinner at Merchant' or 'Uber to airport'","date":"YYYY-MM-DD or null","currency":"ISO 4217 code","total":0,"subtotal":null,"tax":null,"tip":null,"category":"one of ${CATS.join("|")}","items":[{"name":"","amount":0}],"payment_note":"card brand / cash if shown, else null","card_last4":"last 4 digits of the card used if printed (e.g. from ****4821), else null"}
 Rules: total is the final amount charged, including tax, service and any handwritten tip. Items are line items with their extended price (quantity times unit price); leave items empty if unreadable; at most 40. Pick currency from symbols, language and address. If this is not a receipt, set is_receipt false.`;
   const out = await askClaude(sys, [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: big.split(",")[1] } }, { type: "text", text: prompt }], 3000);
   return out;
@@ -835,7 +840,7 @@ function renderSettle(bal) {
   }).join("") : `<div class="card empty"><b>All square</b><span class="muted">Nobody owes anybody. Enjoy the trip.</span></div>`;
   const pays = [...S.payments].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return `${kittyOn() ? `<div class="section">${kittyCard(bal)}</div>` : ""}
-  <div class="section"><div class="section-head"><span class="label">Balances${byHH ? " by household" : ""}</span><span class="muted" style="font-size:12.5px">green is owed, red owes</span></div><div class="card stack">${rows || '<span class="muted">Add your crew first.</span>'}</div>
+  ${S.expenses.some(e => e.currency && e.currency !== cur) ? `<div class="section"><span class="hint">Some expenses were in other currencies and converted at estimated rates, so balances are close but may differ slightly from what cards actually charged.</span></div>` : ""}<div class="section"><div class="section-head"><span class="label">Balances${byHH ? " by household" : ""}</span><span class="muted" style="font-size:12.5px">green is owed, red owes</span></div><div class="card stack">${rows || '<span class="muted">Add your crew first.</span>'}</div>
     ${households().length ? `<label class="toggle"><span style="font-size:14px">Settle by household</span><button class="switch" role="switch" aria-checked="${byHH}" data-act="toggle-hh"></button></label>` : ""}</div>
   <div class="section"><div class="section-head"><span class="label">Who pays whom</span>
     <div class="chips"><button class="chip" aria-pressed="${mode !== "hub"}" data-act="settle-mode" data-mode="fewest">Fewest payments</button><button class="chip" aria-pressed="${mode === "hub"}" data-act="settle-mode" data-mode="hub">Through one person</button></div></div>
@@ -915,7 +920,7 @@ function renderCrew(bal) {
   return `<div class="section"><div class="section-head"><span class="label">Crew</span><span class="muted" style="font-size:13px">${S.people.length} people${households().length ? " · " + households().length + (households().length > 1 ? " households" : " household") : ""}</span></div>
     <div class="card">${S.people.map(p => `<div class="list-row"><span class="avatar" style="background:${p.color}">${esc(initials(p.nickname || p.name))}</span>
       <div class="grow"><div style="font-weight:600">${esc(p.nickname || p.name)} ${p.uid ? `<span class="chip-flag">${p.uid === S.uid ? "You" : "Joined"}</span>` : ""}</div>
-      <div class="muted" style="font-size:12.5px">${[p.nickname && p.name, p.household && p.household.trim()].filter(Boolean).map(esc).join(" · ")}${p.nickname || p.household ? "<br>" : ""}${[p.venmo && "Venmo", p.revolut && "Revolut", p.zelle && "Zelle", p.paypal && "PayPal", p.other && "Other"].filter(Boolean).join(" · ") || "No payment details"}${p.away?.length ? " · out " + p.away.length + " day" + (p.away.length > 1 ? "s" : "") : ""}${+p.weight > 0 && +p.weight !== 1 ? " · counts as " + p.weight : ""}</div>
+      <div class="muted" style="font-size:12.5px">${[p.nickname && p.name, p.household && p.household.trim()].filter(Boolean).map(esc).join(" · ")}${p.nickname || p.household ? "<br>" : ""}${[p.venmo && "Venmo", p.revolut && "Revolut", p.zelle && "Zelle", p.paypal && "PayPal", p.other && "Other"].filter(Boolean).join(" · ") || "No payment details"}${p.cards ? " · card " + esc(p.cards.split(" ").map(c => "..." + c).join(", ")) : ""}${+p.weight > 0 && +p.weight !== 1 ? "" : ""}${p.away?.length ? " · out " + p.away.length + " day" + (p.away.length > 1 ? "s" : "") : ""}${+p.weight > 0 && +p.weight !== 1 ? " · pays for " + p.weight : ""}</div>
       ${badges[p.id] ? `<div class="chips" style="gap:5px;margin-top:6px">${badges[p.id].map(b => `<span class="badge" title="${esc(b.why)}">${esc(b.title)}</span>`).join("")}</div>` : ""}</div>
       <span class="num ${bal[p.id]?.net > .004 ? "good" : bal[p.id]?.net < -.004 ? "bad" : "muted"}" style="font-size:13px;font-weight:600">${sfmt(bal[p.id]?.net || 0, cur)}</span>
       <button class="btn small ghost" data-act="edit-person" data-pid="${p.id}">Edit</button></div>`).join("") || '<span class="muted">No one yet.</span>'}</div>
@@ -982,17 +987,43 @@ function markPaid(from, to, amount) {
   sfx("paid"); toast(`${short(from)} paid ${short(to)} ${fmt(amount, tripCur())}`);
 }
 
+/* ---------- Exchange rates and dictation ---------- */
+// Daily reference rates from free public services (no key). Cached per day on this phone.
+async function fetchRate(from, to) {
+  if (!from || !to || from === to) return 1;
+  const key = `fx:${from}:${to}:${todayISO()}`;
+  const hit = LS.get(key, null); if (hit) return hit;
+  const sources = [
+    async () => (await (await fetch(`https://api.frankfurter.dev/v1/latest?from=${from}&to=${to}`)).json()).rates?.[to],
+    async () => (await (await fetch(`https://open.er-api.com/v6/latest/${from}`)).json()).rates?.[to]
+  ];
+  for (const src of sources) { try { const v = +(await src()); if (v > 0) { const x = +v.toFixed(4); LS.set(key, x); return x; } } catch {} }
+  return null;
+}
+const rateMode = () => S.trip?.rateMode === "fixed" ? "fixed" : "daily";
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+function dictateInto(input, append) {
+  if (!SpeechRec) { toast("Tap the microphone on your keyboard to talk instead."); input.focus(); return; }
+  try {
+    const rec = new SpeechRec(); rec.lang = navigator.language || "en-US"; rec.interimResults = true; rec.continuous = false;
+    const base = append && input.value ? input.value + " " : "";
+    rec.onresult = ev => { input.value = base + Array.from(ev.results).map(r => r[0].transcript).join(""); input.dispatchEvent(new Event("input")); };
+    rec.onerror = () => toast("Could not hear that. Try the microphone on your keyboard.");
+    rec.start(); toast("Listening");
+  } catch { toast("Tap the microphone on your keyboard to talk instead."); input.focus(); }
+}
+
 /* ---------- Add menu and intake ---------- */
 function openAddMenu() {
   const ready = claudeReady();
   openSheet(`${sheetHead("Add expense")}
     <div class="add-grid">
-      <label class="add-tile"><span>${ICON.camera}</span><b>Camera</b><span>Snap a receipt now</span><input type="file" accept="image/*" capture="environment" hidden id="inCam"></label>
-      <label class="add-tile"><span>${ICON.photos}</span><b>Photos</b><span>Pick one or many from your library</span><input type="file" accept="image/*" multiple hidden id="inPhotos"></label>
-      <button class="add-tile" data-act="quick-text"><span>${ICON.text}</span><b>Paste or say it</b><span>Email, text message, or "315 euros, 35 from me..."</span></button>
+      <label class="add-tile"><span>${ICON.camera}</span><b>Camera</b><span>${ready ? "Snap a receipt now" : "Snap a receipt, then type the amount"}</span><input type="file" accept="image/*" capture="environment" hidden id="inCam"></label>
+      <label class="add-tile"><span>${ICON.photos}</span><b>Photos</b><span>${ready ? "Pick one or many from your library" : "Attach a photo, then type the amount"}</span><input type="file" accept="image/*" multiple hidden id="inPhotos"></label>
+      <button class="add-tile" data-act="quick-text" ${ready ? "" : 'style="opacity:.55"'}><span>${ICON.text}</span><b>Paste or say it</b><span>${ready ? 'Paste an email or text, or say it: "315 euros, 35 from me..."' : "Turns on once receipt reading is set up"}</span></button>
       <button class="add-tile" data-act="manual"><span>${ICON.pencil}</span><b>Type it in</b><span>Quick manual entry</span></button>
     </div>
-    ${ready ? "" : `<p class="muted" style="font-size:13px;margin-top:12px">Receipt and text reading need the Claude relay from the setup guide. Until then photos attach to a manual entry.</p>`}`, {
+    ${ready ? "" : `<p class="muted" style="font-size:13px;margin-top:12px">Automatic reading of receipts and text is not switched on yet (setup steps 3 and 4). Until then, use Type it in, or attach a photo and type the amount.</p>`}`, {
     skin: skinOf(S.trip),
     onMount(sh) {
       const onFiles = files => { closeSheet(); intakePhotos([...files]); };
@@ -1001,7 +1032,7 @@ function openAddMenu() {
     }
   });
 }
-ACT["quick-text"] = () => { closeSheet(); openQuickText(""); };
+ACT["quick-text"] = () => { if (!claudeReady()) { toast("Paste or say it turns on once receipt reading is set up. Use Type it in for now.", 4500); return; } closeSheet(); openQuickText(""); };
 ACT.manual = () => { closeSheet(); openExpenseForm(blankDraft()); };
 async function intakePhotos(files) {
   if (!claudeReady()) { // no reader: attach the first photo to a manual entry
@@ -1026,6 +1057,9 @@ function draftFromReceipt(r) {
   Object.assign(d, { description: x.description || x.merchant || "", amount: x.total ?? "", currency: CURRENCIES.includes(cur) ? cur : tripCur(), date: x.date || d.date, category: CATS.includes(x.category) ? x.category : "Other", merchant: x.merchant || "", source: "photo" });
   if (Array.isArray(x.items) && x.items.length) d.items = x.items.filter(i => i && i.name).map(i => ({ name: String(i.name), amount: +i.amount || 0, pids: [] }));
   d.tax = x.tax; d.tip = x.tip; d._file = r.file;
+  const cardP = personByCard(x.card_last4);
+  if (cardP) { d.paidBy = cardP.id; d._cardNote = `Payer set to ${dn(cardP)} from the card ending ${String(x.card_last4).replace(/\D/g, "").slice(-4)}. Tap another name to change it.`; }
+  else if (x.card_last4 && /\d{4}/.test(String(x.card_last4))) d._cardNote = `Card ending ${String(x.card_last4).replace(/\D/g, "").slice(-4)} is not on anyone's crew card yet. Pick the payer, and add the digits to their crew entry for next time.`;
   if (d.date) applyAway(d);
   return d;
 }
@@ -1107,7 +1141,7 @@ function draftFromExpense(e) {
 }
 function openExpenseForm(d, opts = {}) {
   const cur = tripCur();
-  if (!d.rate && d.currency !== cur) d.rate = S.trip.rates?.[d.currency] || "";
+  if (!d.rate && d.currency !== cur && rateMode() === "fixed" && S.trip.rates?.[d.currency]) { d.rate = S.trip.rates[d.currency]; d.rateNote = "The trip's fixed rate."; }
   const sh = openSheet(`${sheetHead(d.id ? "Edit expense" : "New expense")}<div id="ef" class="stack"></div>`, { skin: skinOf(S.trip) });
   const host = $("#ef", sh);
   let showShares = Object.values(d.split).some(w => +w !== 1);
@@ -1125,18 +1159,18 @@ function openExpenseForm(d, opts = {}) {
       ${d.unknown?.length ? `<div class="warn-box"><span>Not in the crew yet: <b>${d.unknown.map(esc).join(", ")}</b></span><div class="row"><button class="btn small primary" id="addUnknown">Add them and redo payers</button></div></div>` : ""}
       ${d._thumb || d._file ? `<img class="receipt-img" id="rimg" alt="Receipt" style="max-height:220px;object-fit:contain;background:var(--surface)">` : ""}
       <div class="amount-row">${multiCur() || nonTrip || d.forceCur ? `<select id="fCur" aria-label="Currency">${curOpts}</select>` : `<button type="button" class="cur-tag mono" id="fCurTag" title="Use another currency">${cur}</button>`}<input class="amount-in num" id="fAmt" inputmode="decimal" placeholder="0.00" value="${esc(d.amount)}" aria-label="Amount"></div>
-      ${nonTrip ? `<div class="field"><span class="label">Rate: 1 ${d.currency} = ? ${cur}</span><div class="row"><input class="input num" id="fRate" inputmode="decimal" value="${esc(d.rate)}" placeholder="e.g. 1.08" style="max-width:140px"><span class="muted num" style="font-size:13.5px">${+d.amount && +d.rate ? "= " + fmt(+d.amount * +d.rate, cur) : "Locked when you save"}</span></div><span class="muted" style="font-size:12.5px">For card charges, you can enter what your card actually billed in ${cur} instead.</span></div>` : ""}
-      <input class="input" id="fDesc" placeholder="What was it? (Dinner at Ardbeg Embassy)" value="${esc(d.description)}">
+      ${nonTrip ? `<div class="field"><span class="label">Rate: 1 ${d.currency} = ? ${cur}</span><div class="row"><input class="input num" id="fRate" inputmode="decimal" value="${esc(d.rate)}" placeholder="${d.rateLoading ? "Getting today's rate" : "e.g. 1.08"}" style="max-width:140px"><span class="muted num" style="font-size:13.5px">${+d.amount && +d.rate ? "= " + fmt(+d.amount * +d.rate, cur) : d.rateLoading ? '<span class="spinner" style="width:12px;height:12px;vertical-align:-2px"></span>' : "Locked when you save"}</span></div><span class="hint">${esc(d.rateNote || (d.rateLoading ? "" : "Could not get today's rate. Type it in, or enter what your card actually billed in " + cur + " and switch the currency to " + cur + "."))} Converted amounts are estimates, not exact to what cards charge.</span></div>` : ""}
+      <div class="row"><input class="input grow" id="fDesc" placeholder="What was it? (Dinner at Taberna)" value="${esc(d.description)}"><button type="button" class="icon-btn" id="fDescMic" aria-label="Say what it was" style="flex:none;width:46px;height:46px">${ICON.mic}</button></div>
       <div class="two"><input class="input" type="date" id="fDate" value="${esc(d.date || "")}"><label class="toggle card" style="padding:0 12px;min-height:46px"><span>Refund</span><button class="switch" role="switch" aria-checked="${!!d.refund}" id="fRefund" aria-label="Refund"></button></label></div>
       <div class="chips">${CATS.map(c => `<button class="chip" aria-pressed="${d.category === c}" data-cat="${c}">${c}</button>`).join("")}</div>
       <div class="field"><div class="section-head"><span class="label">Paid by</span><button class="link" id="fMulti" style="font-size:13px">${d.multi ? "One payer" : "Several people paid"}</button></div>
         ${d.multi ? `<div class="stack" style="gap:8px">${people().map(p => `<div class="row"><span class="avatar" style="background:${p.color};width:30px;height:30px;font-size:11px">${esc(initials(p.name))}</span><span class="grow">${esc(p.name)}</span><input class="input num" style="max-width:120px;min-height:40px" inputmode="decimal" data-payer="${p.id}" value="${esc(d.payers[p.id] ?? "")}" placeholder="0"></div>`).join("")}
           <div class="split-sum num" id="paySum">${payerSumText()}</div></div>`
-          : `<div class="chips">${kittyOn() ? chipPerson(personById(KITTY), d.paidBy === KITTY, "", `data-payby="${KITTY}"`) : ""}${people().map(p => chipPerson(p, d.paidBy === p.id, "", `data-payby="${p.id}"`)).join("")}</div>`}
+          : `${d._cardNote ? `<span class="hint">${esc(d._cardNote)}</span>` : ""}<div class="chips">${kittyOn() ? chipPerson(personById(KITTY), d.paidBy === KITTY, "", `data-payby="${KITTY}"`) : ""}${people().map(p => chipPerson(p, d.paidBy === p.id, "", `data-payby="${p.id}"`)).join("")}</div>`}
       </div>
       <div class="field"><div class="section-head"><span class="label">Split between</span><span class="row" style="gap:14px"><button class="link" id="fAll" style="font-size:13px">All</button><button class="link" id="fNone" style="font-size:13px">None</button><button class="link" id="fShares" style="font-size:13px">${showShares ? "Even split" : "Adjust shares"}</button></span></div>
         ${showShares ? `<div class="stack" style="gap:8px">${people().map(p => `<div class="row"><span class="grow">${esc(p.name)}</span><span class="muted num" style="font-size:12.5px;min-width:70px;text-align:right">${shares[p.id] ? fmt(shares[p.id], cur) : ""}</span><span class="stepper"><button data-w="${p.id}" data-d="-0.5" aria-label="Less">-</button><span class="num" style="min-width:28px;text-align:center">${+d.split[p.id] || 0}</span><button data-w="${p.id}" data-d="0.5" aria-label="More">+</button></span></div>`).join("")}</div><span class="muted" style="font-size:12.5px">Shares weight the split. A couple can count as 2, a kid as 0.5, a single room as 2.</span>`
-          : `${households().length ? `<div class="chips" style="margin-bottom:8px">${households().map(u => `<button class="chip hh-chip" aria-pressed="${u.members.every(m => +d.split[m] > 0)}" data-hh="${esc(u.key)}">${esc(u.label)}</button>`).join("")}</div>` : ""}<div class="chips">${people().map(p => chipPerson(p, +d.split[p.id] > 0, "", `data-split="${p.id}"`)).join("")}</div>`}
+          : `${households().length ? `<div class="chips" style="margin-bottom:8px">${households().map(u => `<button class="chip hh-chip" aria-pressed="${u.members.every(m => +d.split[m] > 0)}" data-hh="${esc(u.key)}">${esc(u.label)} (${u.members.length})</button>`).join("")}<span class="hint" style="flex-basis:100%">Tap a household to add or remove all its members at once.</span></div>` : ""}<div class="chips">${people().map(p => chipPerson(p, +d.split[p.id] > 0, "", `data-split="${p.id}"`)).join("")}</div>`}
         ${awayToday.length ? `<span class="muted" style="font-size:12.5px">${awayToday.map(p => esc(dn(p))).join(", ")} marked out this day and left off.</span>` : ""}
         <div class="split-sum num">${parts.length ? `${parts.length} people · ${Object.values(shares).length ? fmt(Math.max(...Object.values(shares)), cur) + (new Set(Object.values(shares).map(v => v.toFixed(2))).size > 1 ? " max each" : " each") : ""}` : "Pick at least one person"}</div>
       </div>
@@ -1150,6 +1184,17 @@ function openExpenseForm(d, opts = {}) {
     wire();
     if ($("#rimg", host)) { if (d._thumb) $("#rimg", host).src = d._thumb; else if (d._file) $("#rimg", host).src = URL.createObjectURL(d._file); }
   }
+  async function ensureRate() {
+    if (d.currency === cur || +d.rate > 0) return;
+    d.rateLoading = true; draw();
+    const r = await fetchRate(d.currency, cur);
+    d.rateLoading = false;
+    if ($("#fAmt", host)) readInputs(); // keep whatever was typed while waiting
+    if (+d.rate > 0) { draw(); return; }
+    if (r) { d.rate = r; d.rateNote = rateMode() === "fixed" ? "Today's rate, now fixed for this trip." : "Today's rate, filled in for you."; }
+    else if (S.trip.rates?.[d.currency]) { d.rate = S.trip.rates[d.currency]; d.rateNote = "Offline, so the last rate used on this trip."; }
+    draw();
+  }
   function payerSumText() { const s = sumPayers(), a = +d.amount || 0; const left = round2(a - s); return `Entered ${fmt(s, d.currency)} of ${fmt(a, d.currency)}` + (Math.abs(left) > .004 ? ` · <span class="bad">${fmt(Math.abs(left), d.currency)} ${left > 0 ? "unassigned" : "over"}</span>` : ` · <span class="good">matches</span>`); }
   function readInputs() {
     d.amount = $("#fAmt", host).value.replace(",", ".").trim();
@@ -1162,12 +1207,12 @@ function openExpenseForm(d, opts = {}) {
     const re = () => { readInputs(); draw(); };
     if ($("#fCurTag", host)) $("#fCurTag", host).onclick = () => { readInputs(); d.forceCur = true; draw(); };
     host.querySelectorAll("[data-hh]").forEach(b => b.onclick = () => { readInputs(); const u = households().find(x => x.key === b.dataset.hh); if (!u) return; const on = u.members.every(m => +d.split[m] > 0); u.members.forEach(m => on ? delete d.split[m] : d.split[m] = defaultWeight(personById(m))); draw(); });
-    if ($("#fCur", host)) $("#fCur", host).onchange = e => { readInputs(); d.currency = e.target.value; d.rate = d.currency === cur ? "" : (S.trip.rates?.[d.currency] || ""); draw(); };
+    if ($("#fCur", host)) $("#fCur", host).onchange = e => { readInputs(); d.currency = e.target.value; d.rate = ""; d.rateNote = ""; if (d.currency !== cur && rateMode() === "fixed" && S.trip.rates?.[d.currency]) { d.rate = S.trip.rates[d.currency]; d.rateNote = "The trip's fixed rate."; } draw(); ensureRate(); };
     $("#fAmt", host).oninput = () => { if ($("#paySum", host)) { readInputs(); $("#paySum", host).innerHTML = payerSumText(); } };
     $("#fDate", host).onchange = re;
     $("#fRefund", host).onclick = () => { readInputs(); d.refund = !d.refund; draw(); };
     host.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { readInputs(); d.category = b.dataset.cat; draw(); });
-    host.querySelectorAll("[data-payby]").forEach(b => b.onclick = () => { readInputs(); d.paidBy = b.dataset.payby; draw(); });
+    host.querySelectorAll("[data-payby]").forEach(b => b.onclick = () => { readInputs(); d.paidBy = b.dataset.payby; d._cardNote = null; draw(); });
     host.querySelectorAll("[data-payer]").forEach(i => i.oninput = () => { readInputs(); $("#paySum", host).innerHTML = payerSumText(); });
     $("#fMulti", host).onclick = () => { readInputs(); d.multi = !d.multi; if (d.multi && !Object.keys(d.payers).length && d.paidBy) d.payers = { [d.paidBy]: d.amount }; draw(); };
     host.querySelectorAll("[data-split]").forEach(b => b.onclick = () => { readInputs(); const id = b.dataset.split; if (+d.split[id] > 0) delete d.split[id]; else d.split[id] = defaultWeight(personById(id)); draw(); });
@@ -1191,6 +1236,8 @@ function openExpenseForm(d, opts = {}) {
       d.unknown = []; draw(); toast("Added to the crew");
     };
     $("#fSave", host).onclick = () => save();
+    $("#fDescMic", host).onclick = () => dictateInto($("#fDesc", host), false);
+    if ($("#fRate", host)) $("#fRate", host).oninput = () => { d.rateNote = "Rate you entered."; };
     if ($("#fDel", host)) $("#fDel", host).onclick = () => confirmBox("Delete this expense?", "This removes it for everyone.", "Delete", () => {
       write(S.store.del(`trips/${S.tripId}/expenses/${d.id}`)); write(S.store.del(`trips/${S.tripId}/receipts/${d.id}`)); closeSheet(); closeSheet(); toast("Deleted");
     });
@@ -1236,7 +1283,7 @@ function openExpenseForm(d, opts = {}) {
       const img = d._thumb && !d._file ? d._thumb : await thumbFor(d._file);
       write(S.store.set(`trips/${S.tripId}/receipts/${id}`, { img, at: Date.now() }), "The receipt photo did not upload. The expense itself saved.");
     }
-    if (rec.rate) write(S.store.update("trips/" + S.tripId, { ["rates." + rec.currency]: rec.rate }));
+    if (rec.rate && (rateMode() !== "fixed" || !S.trip.rates?.[rec.currency] || d.rateNote === "Rate you entered.")) write(S.store.update("trips/" + S.tripId, { ["rates." + rec.currency]: rec.rate }));
     if (opts.inboxId) S.inbox = S.inbox.filter(r => r.id !== opts.inboxId);
     closeSheet(); render();
     const tot = Math.abs(expTotal(rec));
@@ -1246,7 +1293,7 @@ function openExpenseForm(d, opts = {}) {
       if (S.settings.tease) setTimeout(() => say(pick(BIG)(who, spokenMoney(tot, cur), rec.description)), 700);
     } else { sfx("add"); toast(d.id ? "Saved" : `Added ${fmt(expTotal(rec), cur)}`); }
   }
-  draw();
+  draw(); ensureRate();
 }
 function confirmBox(title, msg, verb, onYes) {
   openSheet(`${sheetHead(title)}<p class="muted">${esc(msg)}</p><div class="two" style="margin-top:14px"><button class="btn ghost" data-act="close">Cancel</button><button class="btn primary" id="cfYes" style="background:var(--bad)">${esc(verb)}</button></div>`, { onMount(sh) { $("#cfYes", sh).onclick = () => { closeSheet(); onYes(); }; } });
@@ -1272,7 +1319,9 @@ async function openExpense(id) {
 }
 
 /* ---------- Trips, people, invites ---------- */
-function newPerson(name, order) { return { name: String(name).trim(), nickname: "", household: "", order, color: PCOLORS[order % PCOLORS.length], venmo: "", revolut: "", zelle: "", paypal: "", other: "", uid: null, away: [], weight: 1 }; }
+function newPerson(name, order) { return { name: String(name).trim(), nickname: "", household: "", order, color: PCOLORS[order % PCOLORS.length], venmo: "", revolut: "", zelle: "", paypal: "", other: "", cards: "", uid: null, away: [], weight: 1 }; }
+function cleanCards(v) { return [...new Set((String(v || "").match(/\d{4}(?!\d)/g) || []).map(x => x.slice(-4)))].slice(0, 4).join(" "); }
+function personByCard(last4) { const c = String(last4 || "").replace(/\D/g, "").slice(-4); if (c.length !== 4) return null; return S.people.find(p => (p.cards || "").split(/\s+/).includes(c)) || null; }
 function openTripForm(t) {
   const editing = !!t;
   t = t ? { ...t } : { name: "", from: "", to: "", start: todayISO(), end: "", currency: "USD", skin: "passport" };
@@ -1283,12 +1332,15 @@ function openTripForm(t) {
       <div class="two"><input class="input mono" id="tFrom" maxlength="4" placeholder="From (DTW)" value="${esc(t.from || "")}" style="text-transform:uppercase"><input class="input mono" id="tTo" maxlength="4" placeholder="To (LIS)" value="${esc(t.to || "")}" style="text-transform:uppercase"></div>
       <div class="two"><label class="field"><span class="label">Start</span><input class="input" type="date" id="tStart" value="${esc(t.start || "")}"></label><label class="field"><span class="label">End</span><input class="input" type="date" id="tEnd" value="${esc(t.end || "")}"></label></div>
       <label class="toggle"><span>Multiple currencies<br><span class="muted" style="font-size:12.5px">Off keeps it simple: one currency, no rates. A receipt in another currency still asks.</span></span><button type="button" class="switch" role="switch" aria-checked="${!!t.multiCurrency}" id="tMulti"></button></label>
+      <div class="field"><span class="label">Exchange rates</span><div class="chips"><button type="button" class="chip" aria-pressed="${t.rateMode !== "fixed"}" data-rm="daily">Today's rate, auto</button><button type="button" class="chip" aria-pressed="${t.rateMode === "fixed"}" data-rm="fixed">One rate for the whole trip</button></div>
+        <span class="hint">Either way the rate fills in by itself and everyone sees that converted amounts are estimates. One rate for the trip uses the first day's rate for every expense.</span>
+        ${editing && Object.keys(t.rates || {}).length ? `<div class="stack" style="gap:8px;margin-top:6px">${Object.entries(t.rates).map(([c, r]) => `<div class="row"><span class="mono" style="min-width:110px">1 ${esc(c)} =</span><input class="input num" data-ratecur="${esc(c)}" inputmode="decimal" value="${esc(r)}" style="max-width:120px"><span class="mono">${esc(t.currency)}</span></div>`).join("")}<span class="hint">Changing a rate here applies to new expenses. Saved expenses keep the rate they were entered with.</span></div>` : ""}</div>
       <label class="field"><span class="label">Trip currency</span><select class="input" id="tCur">${CURRENCIES.map(c => `<option ${c === t.currency ? "selected" : ""}>${c}</option>`).join("")}</select></label>
       <div class="field"><span class="label">Look</span><div class="chips">${SKINS.map(([k, n]) => `<button class="chip" aria-pressed="${t.skin === k}" data-skin-pick="${k}">${n}</button>`).join("")}</div></div>
       ${!editing && past.length ? `<label class="field"><span class="label">Bring the crew from</span><select class="input" id="tCrew"><option value="">Start fresh</option>${past.map(id => `<option value="${id}">${esc(S.trips[id].name)}</option>`).join("")}</select></label>` : ""}
       <label class="field"><span class="label">Daily budget per person (optional)</span><input class="input num" id="tBudget" inputmode="decimal" placeholder="e.g. 150" value="${esc(t.budget || "")}"></label>
       ${editing ? `<label class="field"><span class="label">Big spender alert at (${esc(t.currency)})</span><input class="input num" id="tBig" inputmode="decimal" placeholder="Auto" value="${esc(t.bigSpender || "")}"></label>
-        ${Object.keys(t.rates || {}).length ? `<div class="field"><span class="label">Saved exchange rates</span><span class="muted" style="font-size:13px">${Object.entries(t.rates).map(([c, r]) => `1 ${c} = ${r} ${t.currency}`).join(" · ")}. New expenses start from these; each expense keeps the rate it was saved with.</span></div>` : ""}` : ""}
+` : ""}
       <button class="btn primary block" id="tSave">${editing ? "Save" : "Create trip"}</button>
       ${editing ? `<button class="btn ghost block" data-act="export">${ICON.sheet} Export to spreadsheet</button>
         <button class="btn ghost block" id="tLeave">Remove from this phone</button>
@@ -1296,10 +1348,13 @@ function openTripForm(t) {
     </div>`, {
     skin: t.skin,
     onMount(sh) {
+      sh.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { t.rateMode = b.dataset.rm; sh.querySelectorAll("[data-rm]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
       $("#tMulti", sh).onclick = e => { t.multiCurrency = !t.multiCurrency; e.currentTarget.setAttribute("aria-checked", t.multiCurrency); };
       sh.querySelectorAll("[data-skin-pick]").forEach(b => b.onclick = () => { t.skin = b.dataset.skinPick; sh.dataset.skin = t.skin; sh.querySelectorAll("[data-skin-pick]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
       $("#tSave", sh).onclick = async () => {
-        const rec = { name: $("#tName", sh).value.trim() || "Trip", from: $("#tFrom", sh).value.trim().toUpperCase(), to: $("#tTo", sh).value.trim().toUpperCase(), start: $("#tStart", sh).value || null, end: $("#tEnd", sh).value || null, currency: $("#tCur", sh).value, skin: t.skin || "passport", multiCurrency: !!t.multiCurrency, budget: parseFloat($("#tBudget", sh).value) || null };
+        const rec = { name: $("#tName", sh).value.trim() || "Trip", from: $("#tFrom", sh).value.trim().toUpperCase(), to: $("#tTo", sh).value.trim().toUpperCase(), start: $("#tStart", sh).value || null, end: $("#tEnd", sh).value || null, currency: $("#tCur", sh).value, skin: t.skin || "passport", multiCurrency: !!t.multiCurrency, rateMode: t.rateMode === "fixed" ? "fixed" : "daily", budget: parseFloat($("#tBudget", sh).value) || null };
+        const editedRates = {}; sh.querySelectorAll("[data-ratecur]").forEach(i => { const v = parseFloat(String(i.value).replace(",", ".")); if (v > 0) editedRates[i.dataset.ratecur] = v; });
+        if (Object.keys(editedRates).length) rec.rates = { ...(t.rates || {}), ...editedRates };
         if (editing) {
           if ($("#tBig", sh)) rec.bigSpender = parseFloat($("#tBig", sh).value) || null;
           write(S.store.update("trips/" + S.tripId, rec)); closeSheet(); toast("Saved"); return;
@@ -1310,7 +1365,7 @@ function openTripForm(t) {
         const from = $("#tCrew", sh)?.value;
         if (from) {
           const src = await new Promise(res => { const un = S.store.sub(`trips/${from}/people`, docs => { setTimeout(() => un()); res(docs); }); });
-          src.forEach((p, i) => ops.push({ op: "set", path: `trips/${id}/people/${p.id}`, data: { ...newPerson(p.name, i), nickname: p.nickname || "", household: p.household || "", color: p.color, venmo: p.venmo || "", revolut: p.revolut || "", zelle: p.zelle || "", paypal: p.paypal || "", other: p.other || "", uid: p.uid || null, weight: p.weight || 1 } }));
+          src.forEach((p, i) => ops.push({ op: "set", path: `trips/${id}/people/${p.id}`, data: { ...newPerson(p.name, i), nickname: p.nickname || "", household: p.household || "", color: p.color, venmo: p.venmo || "", revolut: p.revolut || "", zelle: p.zelle || "", paypal: p.paypal || "", other: p.other || "", cards: p.cards || "", uid: p.uid || null, weight: p.weight || 1 } }));
         }
         await write(S.store.batch(ops));
         S.tripIds.push(id); LS.set("trips", S.tripIds); S.trips[id] = rec; watchTrip(id);
@@ -1351,18 +1406,25 @@ function openPersonForm(p, claimSelf) {
   const editing = !!p; p = p ? { ...p } : newPerson("", S.people.length);
   const days = tripDays(S.trip);
   p.away ||= [];
+  const hhNames = [...new Map(S.people.filter(x => x.id !== p.id).map(x => (x.household || "").trim()).filter(Boolean).map(h => [h.toLowerCase(), h])).values()];
   openSheet(`${sheetHead(editing ? p.name : claimSelf ? "Add yourself" : "Add person")}
     <div class="stack">
       <input class="input" id="pN" placeholder="Name" value="${esc(p.name)}">
-      <div class="two"><input class="input" id="pNick" placeholder="Nickname (Big Dog)" value="${esc(p.nickname || "")}"><input class="input" id="pHH" list="hhList" placeholder="Household (The Browns)" value="${esc(p.household || "")}"></div>
-      <datalist id="hhList">${[...new Set(S.people.map(x => x.household?.trim()).filter(Boolean))].map(h => `<option value="${esc(h)}">`).join("")}</datalist>
+      <input class="input" id="pNick" placeholder="Nickname (Big Dog), optional" value="${esc(p.nickname || "")}">
+      <div class="field"><span class="label">Household or couple (optional)</span>
+        ${hhNames.length ? `<div class="chips" id="pHHchips">${hhNames.map(h => `<button type="button" class="chip" aria-pressed="${(p.household || "").trim().toLowerCase() === h.toLowerCase()}" data-hhpick="${esc(h)}">${esc(h)}</button>`).join("")}<button type="button" class="chip" aria-pressed="${!(p.household || "").trim()}" data-hhpick="">None</button></div>` : ""}
+        <input class="input" id="pHH" placeholder="${hhNames.length ? "Or type a new one" : "e.g. The Browns"}" value="${esc(p.household || "")}">
+        <span class="hint">People with the same household name can be picked together in one tap and can settle up as one.</span></div>
       <span class="label" style="margin-top:4px">Get paid by</span>
       <input class="input" id="pV" placeholder="Venmo username (@name)" value="${esc(p.venmo || "")}" autocapitalize="off">
       <input class="input" id="pR" placeholder="Revolut username (revolut.me/...)" value="${esc(p.revolut || "")}" autocapitalize="off">
       <input class="input" id="pZ" placeholder="Zelle phone or email" value="${esc(p.zelle || "")}" autocapitalize="off">
       <input class="input" id="pP" placeholder="PayPal.me username" value="${esc(p.paypal || "")}" autocapitalize="off">
       <input class="input" id="pO" placeholder="Other: IBAN, Wise email, cash only..." value="${esc(p.other || "")}" autocapitalize="off">
-      <label class="toggle"><span>Counts as<br><span class="muted" style="font-size:12.5px">Default share weight. 2 for a couple sharing one tab.</span></span><span class="stepper"><button id="wM">-</button><span id="wV" class="num" style="min-width:28px;text-align:center">${p.weight || 1}</span><button id="wP">+</button></span></label>
+      <div class="field"><span class="label">Card last 4 digits (optional)</span>
+        <input class="input mono" id="pCard" inputmode="numeric" placeholder="e.g. 4821 (add more with a space)" value="${esc(p.cards || "")}" autocomplete="off">
+        <span class="hint">When a scanned receipt shows a card ending in these digits, this person is picked as the payer. Only the last 4 digits, never the full number.</span></div>
+      <label class="toggle"><span>Pays for<br><span class="hint">Leave at 1 for most people. Set to 2 if this person also covers someone not listed in the app, like a partner or a child. Their share of each split grows to match.</span></span><span class="stepper"><button type="button" id="wM">-</button><span id="wV" class="num" style="min-width:28px;text-align:center">${p.weight || 1}</span><button type="button" id="wP">+</button></span></label>
       ${days.length ? `<div class="field"><span class="label">Days out (left off that day's expenses)</span><div class="chips">${days.map(d => `<button class="chip" aria-pressed="${p.away.includes(d)}" data-away="${d}">${esc(new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric" }))}</button>`).join("")}</div></div>` : ""}
       <button class="btn primary block" id="pSave">Save</button>
       ${editing && isOrganizer() && !S.expenses.some(e => payerMap(e)[p.id] || shareMap(e)[p.id]) ? `<button class="btn danger block" id="pDel">Remove from trip</button>` : ""}
@@ -1371,10 +1433,11 @@ function openPersonForm(p, claimSelf) {
     onMount(sh) {
       $("#wM", sh).onclick = () => { p.weight = Math.max(.5, (+p.weight || 1) - .5); $("#wV", sh).textContent = p.weight; };
       $("#wP", sh).onclick = () => { p.weight = (+p.weight || 1) + .5; $("#wV", sh).textContent = p.weight; };
+      sh.querySelectorAll("[data-hhpick]").forEach(b => b.onclick = () => { $("#pHH", sh).value = b.dataset.hhpick; sh.querySelectorAll("[data-hhpick]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
       sh.querySelectorAll("[data-away]").forEach(b => b.onclick = () => { const d = b.dataset.away, i = p.away.indexOf(d); i >= 0 ? p.away.splice(i, 1) : p.away.push(d); b.setAttribute("aria-pressed", i < 0); });
       $("#pSave", sh).onclick = () => {
         const name = $("#pN", sh).value.trim(); if (!name) return toast("Enter a name.");
-        const rec = { ...p, name, nickname: $("#pNick", sh).value.trim(), household: $("#pHH", sh).value.trim(), venmo: $("#pV", sh).value.trim(), revolut: $("#pR", sh).value.trim().replace(/^https?:\/\/(www\.)?revolut\.me\//i, ""), zelle: $("#pZ", sh).value.trim(), paypal: $("#pP", sh).value.trim(), other: $("#pO", sh).value.trim() };
+        const rec = { ...p, name, nickname: $("#pNick", sh).value.trim(), household: $("#pHH", sh).value.trim(), venmo: $("#pV", sh).value.trim(), revolut: $("#pR", sh).value.trim().replace(/^https?:\/\/(www\.)?revolut\.me\//i, ""), zelle: $("#pZ", sh).value.trim(), paypal: $("#pP", sh).value.trim(), other: $("#pO", sh).value.trim(), cards: cleanCards($("#pCard", sh).value) };
         const id = p.id || rid(8); delete rec.id;
         if (claimSelf) { rec.uid = S.uid; LS.set("me:" + S.tripId, id); }
         write(S.store.set(`trips/${S.tripId}/people/${id}`, rec)); closeSheet(); toast(editing ? "Saved" : name + " added");
@@ -1613,6 +1676,7 @@ function openWheel() {
       </div>
       <p class="muted" id="wHelp" style="margin:0;text-align:center;font-size:13px"></p>
       <div class="wheel-box"><div class="wheel-ptr"></div><canvas id="wc" width="640" height="640"></canvas></div>
+      <p class="hint" style="text-align:center;margin:0">Grab the wheel and flick it, or tap Spin.</p>
       <button class="btn primary block" id="wSpin" style="min-height:54px;font-size:17px">Spin</button>
       <div id="wRes"></div>
     </div>`, { skin: skinOf(S.trip) });
@@ -1650,27 +1714,52 @@ function openWheel() {
   }
   const segAtPointer = () => { const a = ((-Math.PI / 2 - rot) % (Math.PI * 2) + Math.PI * 4) % (Math.PI * 2); return segs.find(s => a >= s.start && a < s.end); };
   sh.querySelectorAll("[data-wm]").forEach(b => b.onclick = () => { if (spinning) return; mode = b.dataset.wm; LS.set("wheelMode", mode); layout(); });
-  $("#wSpin", sh).onclick = () => {
+  // Spin: power 0..1 sets how many turns and how long; dir +1 clockwise, -1 counter-clockwise.
+  // The winner is drawn from the mode's weights first, so how hard you flick never changes the odds.
+  function spin(power = .6, dir = 1) {
     if (spinning || !segs.length) return; spinning = true; ac(); $("#wRes", sh).innerHTML = "";
     const w = weights(), tot = w.reduce((a, b) => a + b, 0); let r = Math.random() * tot, win = 0;
     for (let i = 0; i < w.length; i++) { r -= w[i]; if (r <= 0) { win = i; break; } }
     const s = segs[win], target = s.start + (s.end - s.start) * (.2 + Math.random() * .6);
-    const start = rot, final = start + Math.PI * 2 * (5 + Math.floor(Math.random() * 3)) + ((-Math.PI / 2 - target - start) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
-    const t0 = performance.now(), dur = matchMedia("(prefers-reduced-motion: reduce)").matches ? 600 : 4600;
+    const TAU = Math.PI * 2, want = -Math.PI / 2 - target, turns = 3 + Math.round(power * 6);
+    const start = rot, mod = x => ((x % TAU) + TAU) % TAU;
+    const final = dir > 0 ? start + TAU * turns + mod(want - start) : start - TAU * turns - mod(start - want);
+    const t0 = performance.now(), dur = matchMedia("(prefers-reduced-motion: reduce)").matches ? 600 : 2800 + power * 3200;
     let last = null;
     const step = now => {
       const t = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - t, 4);
       rot = start + (final - start) * e; draw();
-      const cur = segAtPointer(); if (cur !== last) { last = cur; if (S.settings.sound) blip(1900, 0, .03, "square", .05); }
+      const cur = segAtPointer(); if (cur !== last) { last = cur; if (S.settings.sound) blip(1900, 0, .03, "square", .05); try { navigator.vibrate?.(8); } catch {} }
       if (t < 1) requestAnimationFrame(step); else done(s.u);
     };
     requestAnimationFrame(step);
+  }
+  $("#wSpin", sh).onclick = () => spin(.6, 1);
+  // Grab and flick: the wheel follows your finger, and letting go with speed spins it.
+  cv.style.touchAction = "none"; cv.style.cursor = "grab";
+  let drag = null;
+  const angleAt = ev => { const b = cv.getBoundingClientRect(); return Math.atan2(ev.clientY - (b.top + b.height / 2), ev.clientX - (b.left + b.width / 2)); };
+  cv.addEventListener("pointerdown", ev => { if (spinning) return; ac(); cv.setPointerCapture(ev.pointerId); drag = { a0: angleAt(ev), r0: rot, samples: [[performance.now(), rot]] }; cv.style.cursor = "grabbing"; });
+  cv.addEventListener("pointermove", ev => {
+    if (!drag) return;
+    let da = angleAt(ev) - drag.a0; if (da > Math.PI) da -= Math.PI * 2; if (da < -Math.PI) da += Math.PI * 2;
+    rot = drag.r0 + da; draw();
+    const now = performance.now(); drag.samples.push([now, rot]); while (drag.samples.length > 2 && now - drag.samples[0][0] > 120) drag.samples.shift();
+    if (Math.abs(da) > Math.PI * .9) { drag.a0 = angleAt(ev); drag.r0 = rot; } // allow winding more than half a turn
+  });
+  const release = () => {
+    if (!drag) return; cv.style.cursor = "grab";
+    const sm = drag.samples, [t1, r1] = sm[sm.length - 1], [t0, r0] = sm[0]; drag = null;
+    const v = (r1 - r0) / Math.max(16, t1 - t0); // radians per ms
+    if (Math.abs(v) < .003) { toast("Give it a harder flick, or tap Spin."); return; }
+    spin(Math.min(1, Math.abs(v) / .03), v > 0 ? 1 : -1);
   };
+  cv.addEventListener("pointerup", release); cv.addEventListener("pointercancel", release);
   function done(u) {
     spinning = false; sfx("big"); stamp(`Round's on ${u.label}`, "Fate has spoken");
     if (S.settings.voice) setTimeout(() => say(pick([`This round is on ${u.label}!`, `Drinks are on ${u.label}.`, `The wheel has chosen ${u.label}. No refunds.`])), 500);
     $("#wRes", sh).innerHTML = `<div class="two"><button class="btn ghost" id="wAgain">Spin again</button><button class="btn primary" id="wLog">Log the round</button></div>`;
-    $("#wAgain", sh).onclick = () => $("#wSpin", sh).click();
+    $("#wAgain", sh).onclick = () => spin(.6, 1);
     $("#wLog", sh).onclick = () => { closeSheet(); const d = blankDraft(); d.paidBy = u.lead; d.category = "Drinks"; d.description = "Round"; openExpenseForm(d); };
   }
   layout();
