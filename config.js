@@ -13,9 +13,9 @@ window.TRIPTAB_CONFIG = {
     appId: "1:901696505551:web:8a4bc055e8daa0c5d159ba"
   },
 
-  // Cloudflare Worker URL that relays to Claude (receipt and text reading). Filled in at the relay step.
-  claudeProxy: "",
+  // Cloudflare Worker URL that relays to Claude (receipt and text reading)
+  claudeProxy: "https://triptab-claude.ted-brownn.workers.dev",
 
-  // Must match APP_KEY set on the Cloudflare Worker. Filled in at the relay step.
-  appKey: ""
+  // Must match APP_KEY set on the Cloudflare Worker
+  appKey: "triptab-87LLT8D6Lxk7BnPiN5V9ZuiK"
 };
