@@ -227,6 +227,14 @@ input,select,textarea,.input{font-size:16px}
 .wrapped-btn{display:grid;gap:4px;text-align:left;width:100%;padding:18px;border-radius:18px;color:var(--hero-ink);background:linear-gradient(120deg,var(--hero-a),var(--hero-b) 70%,var(--accent))}
 .wrapped-btn b{font:800 32px/1 var(--display);text-transform:uppercase}
 .wrapped-btn span:last-child{font-size:13px;color:var(--hero-muted)}
+.dice-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px;margin-top:4px}
+.die-cell{display:grid;justify-items:center;gap:6px;padding:10px 4px;border-radius:14px;border:1.5px solid var(--line);background:var(--surface);transition:transform .15s,border-color .15s}
+.die-cell b{font-size:13.5px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.die-cell.rolling svg{animation:tumble .18s linear infinite}
+.die-cell.loser{border-color:var(--accent);transform:scale(1.06);background:var(--accent-soft)}
+.die-cell svg{width:58px;height:58px}
+@keyframes tumble{0%{transform:rotate(0)}50%{transform:rotate(14deg) scale(.94)}100%{transform:rotate(0)}}
+@media (prefers-reduced-motion:reduce){.die-cell.rolling svg{animation:none}}
 .wheel-box{position:relative;width:min(320px,82vw);margin:4px auto 0}
 .wheel-box canvas{width:100%;height:auto;display:block}
 .wheel-ptr{position:absolute;left:50%;top:-6px;transform:translateX(-50%);width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-top:26px solid var(--fg);filter:drop-shadow(0 2px 2px rgba(0,0,0,.3))}
@@ -388,7 +396,7 @@ const S = {
   tripId: null, trip: null, people: [], expenses: [], payments: [],
   view: "home", tab: LS.get("tab", "feed"),
   inbox: [],           // receipts waiting for review
-  settings: Object.assign({ sound: true, voice: true, tease: true }, LS.get("settings", {})),
+  settings: Object.assign({ sound: true, voice: true, tease: true, haptics: true }, LS.get("settings", {})),
   unsubTrip: [], unsubTrips: {}, ready: false, loaded: { expenses: false }
 };
 const write = (p, fn) => p.catch(e => { console.error(e); toast(fn || "Could not save. Check your connection; it will retry when you are back online."); });
@@ -687,7 +695,7 @@ function renderHome() {
     <div class="top-actions"><div></div><button class="icon-btn" data-act="settings" aria-label="Settings">${ICON.gear}</button></div>
     <div class="brand">${esc(APP.split(" ")[0])}<br><span>${esc(APP.split(" ").slice(1).join(" ") || "")}</span></div>
     <p class="muted" style="margin:8px 0 0">Snap it, split it, settle it.</p>
-    <div class="section">${installTip}${localNote}</div>
+    <div class="section">${installTip}${localNote}${phoneOnlyBanner()}</div>
     <div class="section">
       <div class="section-head"><span class="label">Your trips</span></div>
       ${trips.length ? trips.map(t => `<button class="trip-card" data-skin="${skinOf(t)}" data-act="open-trip" data-id="${t.id}">
@@ -782,7 +790,7 @@ function renderFeed(bal) {
   const nudge = S.people.length > 1 ? `<div class="section"><div class="nudge"><div class="grow">${debtors.length && S.expenses.length > 2
       ? `<div class="label" style="color:var(--fg);opacity:.7">Next round is on</div><div style="font:800 24px/1.1 var(--display);text-transform:uppercase">${esc(short(debtors[0][0]))}</div><div class="muted" style="font-size:13px">Furthest behind at ${fmt(-debtors[0][1].net, cur)}</div>`
       : `<div class="label" style="color:var(--fg);opacity:.7">Round time?</div><div style="font:800 24px/1.1 var(--display);text-transform:uppercase">Who's buying</div>`}</div>
-    <div class="stack" style="gap:6px"><button class="btn small primary" data-act="spin">Spin</button>${S.settings.tease && debtors.length && S.expenses.length > 2 ? `<button class="btn small ghost" data-act="tease" data-pid="${debtors[0][0]}">Roast</button>` : ""}</div></div></div>` : "";
+    <div class="stack" style="gap:6px"><button class="btn small primary" data-act="spin">${LS.get("picker:" + S.tripId, S.trip.picker || "wheel") === "dice" ? "Roll" : "Spin"}</button>${S.settings.tease && debtors.length && S.expenses.length > 2 ? `<button class="btn small ghost" data-act="tease" data-pid="${debtors[0][0]}">Roast</button>` : ""}</div></div></div>` : "";
   const kitty = kittyOn() ? `<div class="section">${kittyCard(bal)}</div>` : "";
   if (!S.expenses.length) return `${inbox}${kitty}<div class="section"><div class="card empty">${ICON.ticket}<b>No expenses yet</b><span class="muted">Tap the plus to snap a receipt, pick photos, paste a text, or type it in.</span><button class="btn primary" data-act="add">${ICON.plus} Add the first one</button></div></div>`;
   const sorted = [...S.expenses].sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.createdAt || 0) - (a.createdAt || 0));
@@ -1001,6 +1009,16 @@ async function fetchRate(from, to) {
   return null;
 }
 const rateMode = () => S.trip?.rateMode === "fixed" ? "fixed" : "daily";
+// Haptics: Android uses vibrate. iPhone Safari has no vibrate, but toggling a hidden switch control gives a tap on recent iOS.
+let hapEl;
+function haptic(ms = 10) {
+  if (S.settings.haptics === false) return;
+  try { if (navigator.vibrate && navigator.vibrate(ms)) return; } catch {}
+  try {
+    if (!hapEl) { hapEl = document.createElement("label"); hapEl.setAttribute("aria-hidden", "true"); hapEl.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none"; hapEl.innerHTML = '<input type="checkbox" switch>'; document.body.append(hapEl); }
+    hapEl.click();
+  } catch {}
+}
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 function dictateInto(input, append) {
   if (!SpeechRec) { toast("Tap the microphone on your keyboard to talk instead."); input.focus(); return; }
@@ -1031,6 +1049,53 @@ function openAddMenu() {
       $("#inPhotos", sh).onchange = e => e.target.files.length && onFiles(e.target.files);
     }
   });
+}
+/* ---------- Trips saved only on this phone (from before sync was on) ---------- */
+function phoneOnlyTrips() {
+  if (S.store?.mode !== "cloud") return [];
+  const db = LS.get("localdb", {}), moved = LS.get("movedTrips", []);
+  return Object.keys(db).filter(k => /^trips\/[^/]+$/.test(k)).map(k => k.split("/")[1]).filter(id => !moved.includes(id)).map(id => {
+    const n = c => Object.keys(db).filter(k => k.startsWith(`trips/${id}/${c}/`)).length;
+    return { id, name: db["trips/" + id].name || "Trip", expenses: n("expenses"), people: n("people") };
+  }).filter(t => t.expenses || t.people);
+}
+function phoneOnlyBanner() {
+  const list = phoneOnlyTrips(); if (!list.length) return "";
+  return `<div class="banner"><b>Saved on this phone only</b><span class="muted" style="font-size:13.5px">These trips were started before sync was on, so your crew can't see them yet. Bring them over and they sync like any other trip. Nothing is lost; a copy stays on this phone.</span>
+    ${list.map(t => `<div class="row"><div class="grow"><b>${esc(t.name)}</b><div class="muted" style="font-size:12.5px">${t.expenses} expense${t.expenses === 1 ? "" : "s"} · ${t.people} people</div></div><button class="btn small primary" data-act="move-trip" data-id="${esc(t.id)}">Bring over</button></div>`).join("")}</div>`;
+}
+ACT["move-trip"] = async el => {
+  el.disabled = true; el.textContent = "Moving";
+  try { const r = await moveLocalTrip(el.dataset.id); sfx("paid"); toast(`${r.name} is synced. ${r.expenses} expense${r.expenses === 1 ? "" : "s"} moved.`, 4500); }
+  catch (e) { console.error(e); el.disabled = false; el.textContent = "Bring over"; toast("Could not move it. Check your connection and try again. Nothing was changed.", 5000); }
+};
+async function moveLocalTrip(oldId) {
+  const db = LS.get("localdb", {}), base = "trips/" + oldId, t = db[base];
+  if (!t) throw new Error("missing trip");
+  let id = oldId;
+  if (await S.store.get("trips/" + id).catch(() => null)) { do id = rid(6); while (await S.store.get("trips/" + id).catch(() => null)); }
+  const localUid = LS.get("localuid", null);
+  const fix = u => u && (u === localUid || String(u).startsWith("local-")) ? S.uid : u;
+  const nb = "trips/" + id, ops = [{ op: "set", path: nb, data: { ...t, createdBy: S.uid, movedFromPhone: true } }], receipts = [];
+  let expenses = 0;
+  for (const [k, v] of Object.entries(db)) {
+    if (!k.startsWith(base + "/")) continue;
+    const rest = k.slice(base.length + 1), col = rest.split("/")[0], data = structuredClone(v);
+    if ("createdBy" in data) data.createdBy = fix(data.createdBy) || S.uid;
+    if (col === "people") data.uid = fix(data.uid) || null;
+    if (col === "expenses") expenses++;
+    (col === "receipts" ? receipts : ops).push({ op: "set", path: nb + "/" + rest, data });
+  }
+  await S.store.batch(ops);
+  for (const r of receipts) await S.store.set(r.path, r.data).catch(e => console.warn("receipt photo not moved", e));
+  LS.set("movedTrips", [...LS.get("movedTrips", []), oldId]);
+  const me = LS.get("me:" + oldId, null); if (me) LS.set("me:" + id, me);
+  if (id !== oldId) { S.tripIds = S.tripIds.filter(x => x !== oldId); S.unsubTrips[oldId]?.(); delete S.unsubTrips[oldId]; }
+  if (!S.tripIds.includes(id)) S.tripIds.push(id);
+  LS.set("trips", S.tripIds);
+  watchTrip(id); S.trips[id] = { ...t, createdBy: S.uid };
+  S.tab = "feed"; openTrip(id);
+  return { id, name: t.name || "Trip", expenses };
 }
 ACT["quick-text"] = () => { if (!claudeReady()) { toast("Paste or say it turns on once receipt reading is set up. Use Type it in for now.", 4500); return; } closeSheet(); openQuickText(""); };
 ACT.manual = () => { closeSheet(); openExpenseForm(blankDraft()); };
@@ -1332,6 +1397,7 @@ function openTripForm(t) {
       <div class="two"><input class="input mono" id="tFrom" maxlength="4" placeholder="From (DTW)" value="${esc(t.from || "")}" style="text-transform:uppercase"><input class="input mono" id="tTo" maxlength="4" placeholder="To (LIS)" value="${esc(t.to || "")}" style="text-transform:uppercase"></div>
       <div class="two"><label class="field"><span class="label">Start</span><input class="input" type="date" id="tStart" value="${esc(t.start || "")}"></label><label class="field"><span class="label">End</span><input class="input" type="date" id="tEnd" value="${esc(t.end || "")}"></label></div>
       <label class="toggle"><span>Multiple currencies<br><span class="muted" style="font-size:12.5px">Off keeps it simple: one currency, no rates. A receipt in another currency still asks.</span></span><button type="button" class="switch" role="switch" aria-checked="${!!t.multiCurrency}" id="tMulti"></button></label>
+      <div class="field"><span class="label">Who's buying picker</span><div class="chips"><button type="button" class="chip" aria-pressed="${t.picker !== "dice"}" data-pk="wheel">Wheel</button><button type="button" class="chip" aria-pressed="${t.picker === "dice"}" data-pk="dice">Dice</button></div><span class="hint">The default for this trip. You can switch any time on the picker itself.</span></div>
       <div class="field"><span class="label">Exchange rates</span><div class="chips"><button type="button" class="chip" aria-pressed="${t.rateMode !== "fixed"}" data-rm="daily">Today's rate, auto</button><button type="button" class="chip" aria-pressed="${t.rateMode === "fixed"}" data-rm="fixed">One rate for the whole trip</button></div>
         <span class="hint">Either way the rate fills in by itself and everyone sees that converted amounts are estimates. One rate for the trip uses the first day's rate for every expense.</span>
         ${editing && Object.keys(t.rates || {}).length ? `<div class="stack" style="gap:8px;margin-top:6px">${Object.entries(t.rates).map(([c, r]) => `<div class="row"><span class="mono" style="min-width:110px">1 ${esc(c)} =</span><input class="input num" data-ratecur="${esc(c)}" inputmode="decimal" value="${esc(r)}" style="max-width:120px"><span class="mono">${esc(t.currency)}</span></div>`).join("")}<span class="hint">Changing a rate here applies to new expenses. Saved expenses keep the rate they were entered with.</span></div>` : ""}</div>
@@ -1348,15 +1414,17 @@ function openTripForm(t) {
     </div>`, {
     skin: t.skin,
     onMount(sh) {
+      sh.querySelectorAll("[data-pk]").forEach(b => b.onclick = () => { t.picker = b.dataset.pk; sh.querySelectorAll("[data-pk]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
       sh.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => { t.rateMode = b.dataset.rm; sh.querySelectorAll("[data-rm]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
       $("#tMulti", sh).onclick = e => { t.multiCurrency = !t.multiCurrency; e.currentTarget.setAttribute("aria-checked", t.multiCurrency); };
       sh.querySelectorAll("[data-skin-pick]").forEach(b => b.onclick = () => { t.skin = b.dataset.skinPick; sh.dataset.skin = t.skin; sh.querySelectorAll("[data-skin-pick]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
       $("#tSave", sh).onclick = async () => {
-        const rec = { name: $("#tName", sh).value.trim() || "Trip", from: $("#tFrom", sh).value.trim().toUpperCase(), to: $("#tTo", sh).value.trim().toUpperCase(), start: $("#tStart", sh).value || null, end: $("#tEnd", sh).value || null, currency: $("#tCur", sh).value, skin: t.skin || "passport", multiCurrency: !!t.multiCurrency, rateMode: t.rateMode === "fixed" ? "fixed" : "daily", budget: parseFloat($("#tBudget", sh).value) || null };
+        const rec = { name: $("#tName", sh).value.trim() || "Trip", from: $("#tFrom", sh).value.trim().toUpperCase(), to: $("#tTo", sh).value.trim().toUpperCase(), start: $("#tStart", sh).value || null, end: $("#tEnd", sh).value || null, currency: $("#tCur", sh).value, skin: t.skin || "passport", multiCurrency: !!t.multiCurrency, rateMode: t.rateMode === "fixed" ? "fixed" : "daily", picker: t.picker === "dice" ? "dice" : "wheel", budget: parseFloat($("#tBudget", sh).value) || null };
         const editedRates = {}; sh.querySelectorAll("[data-ratecur]").forEach(i => { const v = parseFloat(String(i.value).replace(",", ".")); if (v > 0) editedRates[i.dataset.ratecur] = v; });
         if (Object.keys(editedRates).length) rec.rates = { ...(t.rates || {}), ...editedRates };
         if (editing) {
           if ($("#tBig", sh)) rec.bigSpender = parseFloat($("#tBig", sh).value) || null;
+          if (rec.picker !== S.trip.picker) LS.set("picker:" + S.tripId, rec.picker);
           write(S.store.update("trips/" + S.tripId, rec)); closeSheet(); toast("Saved"); return;
         }
         let id = rid(6); while (await S.store.get("trips/" + id).catch(() => null)) id = rid(6);
@@ -1472,6 +1540,7 @@ function openSettings() {
     ${sw("sound", "Sounds", "Cha-ching on save, fanfare for big spenders")}
     ${sw("voice", "Voice", "Read roasts and big spender calls out loud")}
     ${sw("tease", "Teasing", "Roast buttons and big spender calls")}
+    ${sw("haptics", "Vibration", "Taps you feel on the wheel and dice")}
   </div>
   <div class="section"><button class="btn ghost block" data-act="install-help">Add to Home Screen</button>
   <p class="muted" style="font-size:12.5px">${S.store.mode === "cloud" ? "Synced with your crew." : "Single-phone mode. Sync is not set up."} ${claudeReady() ? "Receipt reading is on." : "Receipt reading is off."}</p></div>`, {
@@ -1499,25 +1568,30 @@ function openImport() {
         const parsed = parseSheet(wb);
         if (!parsed) { out.innerHTML = `<p class="bad">Could not find a "Paid by" column. Check that the sheet has Description, Bill (or Amount), and Paid by headers.</p>`; return; }
         const total = parsed.rows.reduce((s, r) => s + r.amount, 0);
-        out.innerHTML = `<div class="card stack"><b>${parsed.rows.length} expenses, ${parsed.names.length} people</b><span class="muted num">${fmt(total, "USD")} total · ${parsed.names.map(esc).join(", ")}</span>
-          <input class="input" id="imName" value="${esc(f.name.replace(/\.(xlsx|xls|csv)$/i, "").replace(/^[0-9a-f]{8}-/i, "").replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase()))}">
-          <select class="input" id="imCur">${CURRENCIES.map(c => `<option>${c}</option>`).join("")}</select>
+        const defCur = parsed.cur && CURRENCIES.includes(parsed.cur) ? parsed.cur : "USD";
+        out.innerHTML = `<div class="card stack"><b>${parsed.rows.length} expenses, ${parsed.names.length} people${parsed.payments.length ? ", " + parsed.payments.length + " payments" : ""}</b><span class="muted num">${fmt(total, defCur)} total · ${parsed.names.map(esc).join(", ")}</span>
+          ${parsed.skipped ? `<span class="bad" style="font-size:13px">${parsed.skipped} row${parsed.skipped > 1 ? "s" : ""} could not be matched to a person and will be left out.</span>` : ""}
+          <input class="input" id="imName" value="${esc(f.name.replace(/\.(xlsx|xls|csv)$/i, "").replace(/^[0-9a-f]{8}-/i, "").replace(/\s*\(\d+\)$/, "").replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase()))}">
+          <select class="input" id="imCur">${CURRENCIES.map(c => `<option ${c === defCur ? "selected" : ""}>${c}</option>`).join("")}</select>
           <button class="btn primary block" id="imGo">Create trip</button></div>`;
         $("#imGo", sh).onclick = async () => {
-          const id = rid(6), base = "trips/" + id;
+          const id = rid(6), base = "trips/" + id, cur = $("#imCur", sh).value, keepOrig = parsed.cur && parsed.cur === cur;
           const dates = parsed.rows.map(r => r.date).filter(Boolean).sort();
-          const ops = [{ op: "set", path: base, data: { name: $("#imName", sh).value || "Imported trip", from: "", to: "", start: dates[0] || null, end: dates.at(-1) || null, currency: $("#imCur", sh).value, skin: "passport", createdBy: S.uid, createdAt: Date.now(), settleMode: "fewest", hub: null, rates: {}, imported: true } }];
-          const pids = parsed.names.map((n, i) => { const pid = rid(8); ops.push({ op: "set", path: `${base}/people/${pid}`, data: newPerson(n, i) }); return pid; });
-          const byName = n => pids[parsed.names.findIndex(x => x.toLowerCase() === String(n).trim().toLowerCase())];
+          const ops = [{ op: "set", path: base, data: { name: $("#imName", sh).value || "Imported trip", from: "", to: "", start: dates[0] || null, end: dates.at(-1) || null, currency: cur, skin: "passport", createdBy: S.uid, createdAt: Date.now(), settleMode: "fewest", hub: null, rates: {}, imported: true, multiCurrency: keepOrig && parsed.rows.some(r => r.cur && r.cur !== cur) } }];
+          const pids = parsed.names.map((n, i) => { const pid = rid(8); const extra = parsed.people[i] || {}; ops.push({ op: "set", path: `${base}/people/${pid}`, data: { ...newPerson(n, i), nickname: extra.nickname || "", household: extra.household || "" } }); return pid; });
           parsed.rows.forEach((r, i) => {
             const split = {}; r.weights.forEach((w, j) => { if (w > 0) split[pids[j]] = w; });
-            let payers = null, paidBy = byName(r.paidBy);
-            if (r.payers) { payers = {}; for (const [n, a] of r.payers) { const p = byName(n); if (p) payers[p] = a; } paidBy = Object.keys(payers)[0]; }
+            let payers = null, paidBy = r.payerIdx >= 0 ? pids[r.payerIdx] : null;
+            if (r.payers) { payers = {}; for (const [j, a] of r.payers) payers[pids[j]] = round2((payers[pids[j]] || 0) + a); paidBy = Object.keys(payers)[0]; if (Object.keys(payers).length < 2) payers = null; }
             if (!paidBy || !Object.keys(split).length) return;
-            ops.push({ op: "set", path: `${base}/expenses/${rid(12)}`, data: { description: r.desc, amount: round2(r.amount), currency: $("#imCur", sh).value, rate: null, date: r.date, category: guessCat(r.desc), paidBy, payers, split, mode: "even", items: null, refund: r.amount < 0, note: "", source: "import", hasReceipt: false, createdAt: Date.now() + i, createdBy: S.uid } });
+            const orig = keepOrig && r.cur && r.orig != null && CURRENCIES.includes(r.cur);
+            const amount = orig ? r.orig : r.amount, rowCur = orig ? r.cur : cur, rate = orig && r.cur !== cur ? r.rate : null;
+            if (payers && orig && r.cur !== cur && r.rate) for (const k in payers) payers[k] = round2(payers[k] / r.rate);
+            ops.push({ op: "set", path: `${base}/expenses/${rid(12)}`, data: { description: r.desc, amount: round2(Math.abs(amount)), currency: rowCur, rate, date: r.date, category: CATS.includes(r.cat) ? r.cat : guessCat(r.desc), paidBy, payers, split, mode: "even", items: null, refund: amount < 0, note: "", source: "import", hasReceipt: false, createdAt: Date.now() + i, createdBy: S.uid } });
           });
-          await write(S.store.batch(ops.map(o => o.data.refund ? { ...o, data: { ...o.data, amount: Math.abs(o.data.amount) } } : o)));
-          S.tripIds.push(id); LS.set("trips", S.tripIds); watchTrip(id); closeSheet(); S.tab = "settle"; openTrip(id); sfx("paid"); toast("Imported. Tap your name to claim it.");
+          parsed.payments.forEach((p, i) => ops.push({ op: "set", path: `${base}/payments/${rid(10)}`, data: { from: pids[p.from], to: pids[p.to], amount: round2(p.amount), date: p.date || todayISO(), createdAt: Date.now() + i, createdBy: S.uid } }));
+          await write(S.store.batch(ops));
+          S.tripIds.push(id); LS.set("trips", S.tripIds); watchTrip(id); closeSheet(); S.tab = "feed"; openTrip(id); sfx("paid"); toast("Imported. Tap your name to claim it.");
         };
       } catch (err) { console.error(err); out.innerHTML = `<p class="bad">Could not read that file.</p>`; }
     }; }
@@ -1535,17 +1609,36 @@ function guessCat(s) {
   if (/deposit/.test(s)) return "Deposit";
   return "Other";
 }
+// Matches a name as written in a sheet ("Jen gugni", "Jen", or "Big Ted (Ted)" from older exports) to a crew column.
+function nameMatcher(names) {
+  const full = names.map(n => n.trim().toLowerCase()), first = full.map(n => n.split(/\s+/)[0]);
+  return raw => {
+    const s = String(raw ?? "").trim(); if (!s) return -1;
+    const m = s.match(/^(.*?)\s*\(([^()]+)\)\s*$/);
+    for (const t of m ? [s, m[2], m[1]] : [s]) {
+      const x = t.trim().toLowerCase(); if (!x) continue;
+      let i = full.indexOf(x); if (i >= 0) return i;
+      i = first.indexOf(x); if (i >= 0 && first.lastIndexOf(x) === i) return i;
+    }
+    return -1;
+  };
+}
 function parseSheet(wb) {
+  const toISO = v => { if (v instanceof Date) { const x = new Date(+v + 6e4); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; } if (typeof v === "string" && /^\d{4}-\d\d-\d\d/.test(v)) return v.slice(0, 10); return null; };
+  const num = v => typeof v === "number" ? v : parseFloat(String(v ?? "").replace(/[^\d.\-]/g, ""));
   for (const sn of wb.SheetNames) {
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: null });
     let hr = -1, pc = -1;
     for (let r = 0; r < Math.min(rows.length, 15) && hr < 0; r++) (rows[r] || []).forEach((v, c) => { if (hr < 0 && typeof v === "string" && /paid\s*by/i.test(v)) { hr = r; pc = c; } });
     if (hr < 0) continue;
-    const H = rows[hr].map(v => typeof v === "string" ? v.toLowerCase() : "");
+    const H = rows[hr].map(v => typeof v === "string" ? v.toLowerCase().trim() : "");
     const find = re => H.findIndex(h => re.test(h));
     let dc = find(/desc|item|what/), dt = find(/^date/), ac = find(/^bill$|^amount|^total|^cost|^price/);
     if (ac < 0) ac = H.findIndex((h, i) => i !== dc && /amount|bill|cost/.test(h));
     if (dc < 0) dc = pc - 3; if (ac < 0) ac = pc - 1;
+    // This app's own export carries the original amount, currency and rate
+    const oc = find(/^original amount/), cc = find(/^currency$/), rc = find(/^rate$/), kc = find(/^category$/);
+    const curM = (H[ac] || "").match(/\(([a-z]{3})\)/), tripCurrency = curM ? curM[1].toUpperCase() : null;
     const names = [], cols = [];
     for (let c = pc + 1; c < (rows[hr].length || 0) + 1; c++) {
       const a = rows[hr][c], b = hr > 0 ? rows[hr - 1][c] : null;
@@ -1553,20 +1646,42 @@ function parseSheet(wb) {
       if (!n) break; names.push(n.trim()); cols.push(c);
     }
     if (!names.length) continue;
-    const out = [];
+    const match = nameMatcher(names);
+    // Nicknames and households: from the Balances tab when present, and from "Nick (First)" names in older exports
+    const people = names.map(() => ({}));
+    for (const s2 of wb.SheetNames) {
+      const R = XLSX.utils.sheet_to_json(wb.Sheets[s2], { header: 1, raw: true, defval: null });
+      const h2 = (R[0] || []).map(v => typeof v === "string" ? v.toLowerCase().trim() : "");
+      const ni = h2.indexOf("nickname"), hi = h2.indexOf("household");
+      if (h2[0] === "name" && (ni >= 0 || hi >= 0)) for (const row of R.slice(1)) { const i = match(row[0]); if (i >= 0) { if (ni >= 0 && row[ni]) people[i].nickname = String(row[ni]).trim(); if (hi >= 0 && row[hi]) people[i].household = String(row[hi]).trim(); } }
+      for (const row of R) for (const v of row) if (typeof v === "string") { const m = v.match(/^(.*?)\s*\(([^()]+)\)$/); if (m && m[1].trim() && m[1].trim().toLowerCase() !== m[2].trim().toLowerCase()) { const i = match(m[2]); if (i >= 0 && !people[i].nickname) people[i].nickname = m[1].trim(); } }
+    }
+    const out = []; let skipped = 0;
     for (let r = hr + 1; r < rows.length; r++) {
       const row = rows[r] || [];
-      const desc = row[dc], amt = typeof row[ac] === "number" ? row[ac] : parseFloat(row[ac]);
+      const desc = row[dc], amt = num(row[ac]);
       if (typeof desc === "string" && /^total/i.test(desc.trim())) break;
       if (!desc && !amt) continue;
       if (!isFinite(amt) || !amt) continue;
-      const weights = cols.map(c => { const v = row[c]; return typeof v === "number" ? Math.abs(v) : parseFloat(v) || 0; });
+      let weights = cols.map(c => { const v = row[c]; return typeof v === "number" ? Math.abs(v) : parseFloat(v) || 0; });
+      const on = weights.filter(w => w > 0);
+      if (on.length && Math.max(...on) - Math.min(...on) < .011) weights = weights.map(w => w > 0 ? 1 : 0); // equal shares become a plain even split
       let payers = null; const pb = row[pc];
-      if (typeof pb === "string" && /\d/.test(pb) && /;/.test(pb)) payers = pb.split(";").map(s => s.trim().match(/^(.*?)\s+([\d.]+)$/)).filter(Boolean).map(m => [m[1], +m[2]]);
-      let date = dt >= 0 ? row[dt] : null; if (date instanceof Date) { const x = new Date(+date + 6e4); date = `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; } else if (typeof date === "string" && /^\d{4}-\d\d-\d\d/.test(date)) date = date.slice(0, 10); else date = null;
-      out.push({ desc: String(desc || "Expense").trim(), amount: amt, paidBy: typeof pb === "string" ? pb.trim() : "", payers, weights, date });
+      if (typeof pb === "string" && /\d/.test(pb) && /;/.test(pb)) payers = pb.split(";").map(s => s.trim().match(/^(.*?)\s+([\d.]+)$/)).filter(Boolean).map(m => [match(m[1]), +m[2]]);
+      const payerIdx = payers ? (payers.every(p => p[0] >= 0) ? payers[0][0] : -1) : match(pb);
+      if (payerIdx < 0) { skipped++; continue; }
+      const orig = oc >= 0 ? num(row[oc]) : null, rcur = cc >= 0 && typeof row[cc] === "string" ? row[cc].trim().toUpperCase() : null, rate = rc >= 0 ? num(row[rc]) : null;
+      out.push({ desc: String(desc || "Expense").trim(), amount: amt, payerIdx, payers, weights, date: toISO(dt >= 0 ? row[dt] : null), cat: kc >= 0 ? row[kc] : null,
+        orig: isFinite(orig) && orig ? orig : null, cur: rcur, rate: isFinite(rate) && rate > 0 ? rate : null });
     }
-    if (out.length) return { names, rows: out };
+    // Payments already made (this app's export has a Payments tab: Date, From, To, Amount)
+    const payments = [];
+    const ps = wb.SheetNames.find(n => /^payments$/i.test(n));
+    if (ps) for (const row of XLSX.utils.sheet_to_json(wb.Sheets[ps], { header: 1, raw: true, defval: null }).slice(1)) {
+      const from = match(row[1]), to = match(row[2]), a = num(row[3]);
+      if (from >= 0 && to >= 0 && a > 0) payments.push({ from, to, amount: a, date: toISO(row[0]) });
+    }
+    if (out.length) return { names, rows: out, cur: tripCurrency, people, payments, skipped };
   }
   return null;
 }
@@ -1582,7 +1697,7 @@ async function exportXlsx() {
     const head = ["ID", "Description", "Date", "Category", "Original amount", "Currency", "Rate", `Amount (${cur})`, "Paid by", ...ppl.map(p => p.name)];
     const rows = exps.map((e, i) => {
       const sm = shareMap(e), pm = payerMap(e);
-      const pb = Object.keys(pm).length > 1 ? Object.entries(e.payers).map(([p, a]) => `${nameOf(p)} ${a}`).join("; ") : nameOf(e.paidBy);
+      const pb = Object.keys(pm).length > 1 ? Object.entries(e.payers).map(([p, a]) => `${personById(p).name} ${a}`).join("; ") : personById(e.paidBy).name;
       return [i + 1, e.description, e.date || "", e.category, sign(e) * e.amount, e.currency, rateOf(e), round2(expTotal(e)), pb, ...ppl.map(p => sm[p.id] ? round2(sm[p.id]) : null)];
     });
     const totals = ["", "Total", "", "", "", "", "", round2(exps.reduce((s, e) => s + expTotal(e), 0)), "", ...ppl.map(p => round2(bal[p.id]?.share || 0))];
@@ -1590,11 +1705,11 @@ async function exportXlsx() {
     const ws1 = XLSX.utils.aoa_to_sheet([head, ...rows, [], totals]);
     ws1["!cols"] = [{ wch: 4 }, { wch: 34 }, { wch: 11 }, { wch: 11 }, { wch: 10 }, { wch: 8 }, { wch: 7 }, { wch: 12 }, { wch: 22 }, ...ppl.map(() => ({ wch: 13 }))];
     XLSX.utils.book_append_sheet(wb, ws1, "Expenses");
-    const bh = ["Name", "Paid", "Fair share", "Payments sent", "Payments received", "Net (+ owed to them)"];
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([bh, ...[...ppl, ...(bal[KITTY] ? [personById(KITTY)] : [])].map(p => { const b = bal[p.id]; return [p.name, round2(b.paid), round2(b.share), round2(b.sent), round2(b.recv), round2(b.net)]; })]), "Balances");
+    const bh = ["Name", "Paid", "Fair share", "Payments sent", "Payments received", "Net (+ owed to them)", "Nickname", "Household"];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([bh, ...[...ppl, ...(bal[KITTY] ? [personById(KITTY)] : [])].map(p => { const b = bal[p.id]; return [p.name, round2(b.paid), round2(b.share), round2(b.sent), round2(b.recv), round2(b.net), p.kitty ? "" : p.nickname || "", p.kitty ? "" : p.household || ""]; })]), "Balances");
     const plan = settlePlan(bal, S.trip.settleMode || "fewest", S.trip.hub);
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["From", "To", `Amount (${cur})`, "Venmo", "Zelle", "PayPal"], ...plan.map(x => { const to = personById(x.to); return [nameOf(x.from), to.name, x.amount, to.venmo || "", to.zelle || "", to.paypal || ""]; })]), "Settle up");
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Date", "From", "To", "Amount"], ...S.payments.map(p => [p.date, nameOf(p.from), nameOf(p.to), p.amount])]), "Payments");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Date", "From", "To", "Amount"], ...S.payments.map(p => [p.date, personById(p.from).name, personById(p.to).name, p.amount])]), "Payments");
     const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
     const name = (S.trip.name || "trip").replace(/[^\w\- ]+/g, "").trim() + ".xlsx";
     const file = new File([buf], name, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -1669,15 +1784,21 @@ function openWheel() {
   const U = unitsMap();
   const units = byHH ? Object.values(U).filter(u => u.key !== KITTY) : S.people.map(p => ({ key: p.id, label: dn(p), members: [p.id], lead: p.id }));
   let mode = LS.get("wheelMode", "behind");
+  let tool = LS.get("picker:" + S.tripId, S.trip.picker || "wheel");
   const sh = openSheet(`${sheetHead("Who's buying?")}
     <div class="stack">
+      <div class="chips" style="justify-content:center"><button class="chip" data-tool="wheel">Wheel</button><button class="chip" data-tool="dice">Dice</button></div>
       <div class="chips" style="justify-content:center">
         <button class="chip" data-wm="behind">Who's behind</button><button class="chip" data-wm="luck">Pure luck</button><button class="chip" data-wm="rotation">Take turns</button>
       </div>
       <p class="muted" id="wHelp" style="margin:0;text-align:center;font-size:13px"></p>
-      <div class="wheel-box"><div class="wheel-ptr"></div><canvas id="wc" width="640" height="640"></canvas></div>
+      <div id="wheelView" class="stack"><div class="wheel-box"><div class="wheel-ptr"></div><canvas id="wc" width="640" height="640"></canvas></div>
       <p class="hint" style="text-align:center;margin:0">Grab the wheel and flick it, or tap Spin.</p>
-      <button class="btn primary block" id="wSpin" style="min-height:54px;font-size:17px">Spin</button>
+      <button class="btn primary block" id="wSpin" style="min-height:54px;font-size:17px">Spin</button></div>
+      <div id="diceView" class="stack hidden"><div class="dice-grid" id="dGrid"></div>
+      <p class="hint" style="text-align:center;margin:0">Everyone rolls. Lowest roll buys.</p>
+      <button class="btn primary block" id="dRoll" style="min-height:54px;font-size:17px">Roll</button></div>
+      <button class="btn ghost block" id="dShake">Turn on shake</button>
       <div id="wRes"></div>
     </div>`, { skin: skinOf(S.trip) });
   const cv = $("#wc", sh), ctx = cv.getContext("2d");
@@ -1694,7 +1815,7 @@ function openWheel() {
   function layout() {
     const w = weights(), tot = w.reduce((a, b) => a + b, 0); let a = 0;
     segs = units.map((u, i) => { const span = w[i] / tot * Math.PI * 2; const s = { u, start: a, end: a + span, color: personById(u.lead).color || PCOLORS[i % PCOLORS.length] }; a += span; return s; });
-    $("#wHelp", sh).textContent = mode === "behind" ? "Bigger slice for whoever owes the most." : mode === "luck" ? "Everyone gets the same slice." : "Lands on whoever has bought the fewest drink rounds.";
+    $("#wHelp", sh).textContent = mode === "behind" ? "Better odds of buying for whoever owes the most." : mode === "luck" ? "Everyone has the same odds." : "Lands on whoever has bought the fewest drink rounds.";
     sh.querySelectorAll("[data-wm]").forEach(b => b.setAttribute("aria-pressed", b.dataset.wm === mode));
     draw();
   }
@@ -1729,7 +1850,7 @@ function openWheel() {
     const step = now => {
       const t = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - t, 4);
       rot = start + (final - start) * e; draw();
-      const cur = segAtPointer(); if (cur !== last) { last = cur; if (S.settings.sound) blip(1900, 0, .03, "square", .05); try { navigator.vibrate?.(8); } catch {} }
+      const cur = segAtPointer(); if (cur !== last) { last = cur; if (S.settings.sound) blip(1900, 0, .03, "square", .05); haptic(8); }
       if (t < 1) requestAnimationFrame(step); else done(s.u);
     };
     requestAnimationFrame(step);
@@ -1756,13 +1877,59 @@ function openWheel() {
   };
   cv.addEventListener("pointerup", release); cv.addEventListener("pointercancel", release);
   function done(u) {
-    spinning = false; sfx("big"); stamp(`Round's on ${u.label}`, "Fate has spoken");
-    if (S.settings.voice) setTimeout(() => say(pick([`This round is on ${u.label}!`, `Drinks are on ${u.label}.`, `The wheel has chosen ${u.label}. No refunds.`])), 500);
-    $("#wRes", sh).innerHTML = `<div class="two"><button class="btn ghost" id="wAgain">Spin again</button><button class="btn primary" id="wLog">Log the round</button></div>`;
-    $("#wAgain", sh).onclick = () => spin(.6, 1);
+    spinning = false; sfx("big"); haptic(60); stamp(`Round's on ${u.label}`, tool === "dice" ? "The dice have spoken" : "Fate has spoken");
+    if (S.settings.voice) setTimeout(() => say(pick([`This round is on ${u.label}!`, `Drinks are on ${u.label}.`, tool === "dice" ? `Snake eyes for ${u.label}. Pay up.` : `The wheel has chosen ${u.label}. No refunds.`])), 500);
+    $("#wRes", sh).innerHTML = `<div class="two"><button class="btn ghost" id="wAgain">${tool === "dice" ? "Roll again" : "Spin again"}</button><button class="btn primary" id="wLog">Log the round</button></div>`;
+    $("#wAgain", sh).onclick = () => tool === "dice" ? roll() : spin(.6, 1);
     $("#wLog", sh).onclick = () => { closeSheet(); const d = blankDraft(); d.paidBy = u.lead; d.category = "Drinks"; d.description = "Round"; openExpenseForm(d); };
   }
-  layout();
+  /* ----- Dice: everyone rolls, lowest buys. The loser is drawn from the same mode weights as the wheel, then the dice are shown to match. ----- */
+  const PIPS = { 1: [[50, 50]], 2: [[28, 28], [72, 72]], 3: [[26, 26], [50, 50], [74, 74]], 4: [[28, 28], [72, 28], [28, 72], [72, 72]], 5: [[27, 27], [73, 27], [50, 50], [27, 73], [73, 73]], 6: [[28, 24], [72, 24], [28, 50], [72, 50], [28, 76], [72, 76]] };
+  const dieSvg = n => `<svg viewBox="0 0 100 100"><rect x="5" y="5" width="90" height="90" rx="18" fill="#fff" stroke="currentColor" stroke-width="5"/>${PIPS[n].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="9" fill="#14243a"/>`).join("")}</svg>`;
+  const face = () => 1 + Math.floor(Math.random() * 6);
+  function drawDice(vals) { $("#dGrid", sh).innerHTML = units.map((u, i) => `<div class="die-cell" data-di="${i}" style="color:${personById(u.lead).color || "#888"}">${dieSvg(vals ? vals[i] : 6)}<b>${esc(u.label)}</b></div>`).join(""); }
+  function roll() {
+    if (spinning || !units.length) return; spinning = true; ac(); $("#wRes", sh).innerHTML = "";
+    const w = weights(), tot = w.reduce((a, b) => a + b, 0); let r = Math.random() * tot, win = 0;
+    for (let i = 0; i < w.length; i++) { r -= w[i]; if (r <= 0) { win = i; break; } }
+    const low = 1 + Math.floor(Math.random() * 2); // loser rolls 1 or 2; everyone else rolls higher
+    const final = units.map((_, i) => i === win ? low : low + 1 + Math.floor(Math.random() * (6 - low)));
+    drawDice(units.map(face));
+    const cells = [...sh.querySelectorAll("[data-di]")]; cells.forEach(c => c.classList.add("rolling"));
+    const fast = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const stopAt = units.map((_, i) => (fast ? 200 : 700) + i * (fast ? 40 : 220));
+    const t0 = performance.now(); const stopped = new Set();
+    const tick = setInterval(() => {
+      const el = performance.now() - t0;
+      cells.forEach((c, i) => {
+        if (stopped.has(i)) return;
+        if (el >= stopAt[i]) { stopped.add(i); c.classList.remove("rolling"); c.querySelector("svg").outerHTML = dieSvg(final[i]); haptic(12); if (S.settings.sound) blip(520 + final[i] * 90, 0, .07, "triangle", .08); }
+        else { c.querySelector("svg").outerHTML = dieSvg(face()); if (Math.random() < .35 && S.settings.sound) blip(1500, 0, .02, "square", .03); }
+      });
+      if (stopped.size === units.length) { clearInterval(tick); setTimeout(() => { cells[win].classList.add("loser"); done(units[win]); }, 350); }
+    }, 70);
+  }
+  $("#dRoll", sh).onclick = () => roll();
+  // Shake the phone to spin the wheel or roll the dice again. iPhone asks permission once, after a tap (Apple's rule).
+  let shakeOn = false, lastShake = 0;
+  const onMotion = e => { const a = e.accelerationIncludingGravity || e.acceleration; if (!a) return; const m = Math.hypot(a.x || 0, a.y || 0, a.z || 0); if (m > 24 && Date.now() - lastShake > 2500 && !spinning) { lastShake = Date.now(); tool === "dice" ? roll() : spin(.8, 1); } };
+  const shakeLabel = () => { $("#dShake", sh).textContent = shakeOn ? `Shake is on: shake to ${tool === "dice" ? "roll" : "spin"} again` : "Turn on shake"; };
+  $("#dShake", sh).onclick = async () => {
+    if (shakeOn) { removeEventListener("devicemotion", onMotion); shakeOn = false; shakeLabel(); return; }
+    try { if (typeof DeviceMotionEvent !== "undefined" && DeviceMotionEvent.requestPermission) { const p = await DeviceMotionEvent.requestPermission(); if (p !== "granted") { toast("Motion access was not allowed. Tap the button instead."); return; } } } catch { toast("Shake is not available here. Tap the button instead."); return; }
+    addEventListener("devicemotion", onMotion); shakeOn = true; shakeLabel(); toast("Shake the phone to go again");
+  };
+  const stopShake = () => removeEventListener("devicemotion", onMotion);
+  const obs = new MutationObserver(() => { if (!document.body.contains(sh)) { stopShake(); obs.disconnect(); } }); obs.observe(document.body, { childList: true, subtree: true });
+  function setTool(t) {
+    if (spinning) return; tool = t; LS.set("picker:" + S.tripId, t); $("#wRes", sh).innerHTML = "";
+    $("#wheelView", sh).classList.toggle("hidden", t !== "wheel"); $("#diceView", sh).classList.toggle("hidden", t !== "dice");
+    sh.querySelectorAll("[data-tool]").forEach(b => b.setAttribute("aria-pressed", b.dataset.tool === t));
+    if (t === "dice") drawDice();
+    shakeLabel(); render();
+  }
+  sh.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => setTool(b.dataset.tool));
+  layout(); setTool(tool);
 }
 
 /* ---------- Trip Wrapped ---------- */
