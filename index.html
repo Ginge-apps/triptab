@@ -180,7 +180,7 @@ input,select,textarea,.input{font-size:16px}
 .bar-pair{display:grid;gap:3px}
 .bar{height:10px;border-radius:3px;background:var(--accent);min-width:2px}
 .bar.share{background:transparent;border:1.5px solid var(--muted);height:8px}
-.cols{display:flex;align-items:flex-end;gap:6px;height:150px;padding-top:16px;overflow-x:auto}
+.cols{display:flex;align-items:flex-end;gap:6px;height:150px;padding-top:16px;overflow-x:auto;width:0;min-width:100%}  /* long trips scroll inside the card instead of widening the page */
 .col{flex:1 0 28px;display:grid;justify-items:center;gap:4px;font-size:11px;color:var(--muted);align-self:stretch;grid-template-rows:auto 1fr auto}
 .col .c{width:100%;background:var(--accent);border-radius:4px 4px 0 0;align-self:end;min-height:2px}
 .tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
@@ -441,8 +441,19 @@ function computeBalances(people, expenses, payments) {
   for (const k in b) b[k].net = b[k].paid - b[k].share + b[k].sent - b[k].recv;
   return b;
 }
+// Round every balance to whole cents so they still add up to exactly zero: the stray cents from rounding
+// go to the people whose amounts were closest to rounding the other way (largest remainder).
+function centsOf(bal) {
+  const rows = Object.entries(bal).map(([p, v]) => { const x = v.net * 100, c = Math.round(x); return { p, c, err: x - c }; });
+  let off = rows.reduce((a, r) => a + r.c, 0);
+  if (off) {
+    const order = rows.slice().sort((a, b) => off > 0 ? a.err - b.err : b.err - a.err);
+    for (let i = 0; off && i < order.length * 2; i++) { const r = order[i % order.length]; const d = off > 0 ? -1 : 1; r.c += d; off += d; }
+  }
+  return rows.map(r => [r.p, r.c]);
+}
 function settlePlan(bal, mode, hub) {
-  const cents = Object.entries(bal).map(([p, v]) => [p, Math.round(v.net * 100)]).filter(([, c]) => c !== 0);
+  const cents = centsOf(bal).filter(([, c]) => c !== 0);
   const out = [];
   if (mode === "hub" && hub && bal[hub]) {
     for (const [p, c] of cents) { if (p === hub) continue; if (c < 0) out.push({ from: p, to: hub, amount: -c / 100 }); else out.push({ from: hub, to: p, amount: c / 100 }); }
@@ -844,8 +855,9 @@ function renderSettle(bal) {
   const plan = settlePlan(B, mode, hub);
   const keys = byHH ? Object.keys(U).filter(k => k !== KITTY) : S.people.map(p => p.id);
   if (kittyOn()) keys.push(KITTY);
+  const C = Object.fromEntries(centsOf(B));  // same whole cents as the plan, so the list adds to exactly zero
   const max = Math.max(1, ...keys.map(k => Math.abs(B[k]?.net || 0)));
-  const rows = keys.map(k => { const v = B[k]?.net || 0; const w = Math.abs(v) / max * 50;
+  const rows = keys.map(k => { const v = (C[k] ?? 0) / 100; const w = Math.abs(v) / max * 50;
     return `<div class="bal-row"><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(label(k))}</span><span class="bal-track"><span class="bal-bar" style="${v >= 0 ? `left:50%;width:${w}%;background:var(--good)` : `right:50%;width:${w}%;background:var(--bad)`}"></span></span><span class="num ${v > .004 ? "good" : v < -.004 ? "bad" : "muted"}" style="text-align:right;font-weight:600">${sfmt(v, cur)}</span></div>`; }).join("");
   const tickets = plan.length ? plan.map(x => {
     const from = lead(x.from), to = lead(x.to);
