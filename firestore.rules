@@ -1,19 +1,64 @@
 rules_version = '2';
+// Trip Tab database rules, v2 (Oct 6, 2026).
+// The 6-letter trip code is the invite: anyone signed in to the app who knows it can open the trip and add to it.
+// What these rules add over v1:
+//  - Only the person who added an expense or payment, or the trip organizer, can change or delete it (decision D4).
+//  - Nobody can take over a trip or change who created an expense.
+//  - A crew name can only be claimed by the person claiming it, and only the organizer can remove people.
+//  - Basic checks on amounts and receipt photo size; anything outside the app's own data is refused.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function tripPath(t) { return /databases/$(database)/documents/trips/$(t); }
+    // Organizer = whoever created the trip. "After" version is for batches that create the trip and its contents together.
+    function isOrganizer(t) { return get(tripPath(t)).data.createdBy == me(); }
+    function isOrganizerAfter(t) { return getAfter(tripPath(t)).data.createdBy == me(); }
+    function addedByMe() { return resource.data.get('createdBy', '') == me(); }
+    function sameCreator() { return request.resource.data.get('createdBy', '') == resource.data.get('createdBy', ''); }
+    function okAmount(a) { return a is number && a >= 0 && a < 10000000; }
 
-    match /trips/{tripId} {
-      // Anyone with the app who knows the 6-letter code can open a trip.
-      // Listing all trips is not allowed, so codes cannot be browsed.
+    match /trips/{t} {
       allow get: if signedIn();
-      allow list: if false;
-      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
-      allow update: if signedIn();
-      allow delete: if signedIn() && resource.data.createdBy == request.auth.uid;
+      allow list: if false;  // trip codes cannot be browsed
+      allow create: if signedIn() && request.resource.data.createdBy == me();
+      allow update: if signedIn() && sameCreator();
+      allow delete: if signedIn() && resource.data.createdBy == me();
 
-      match /{sub=**} {
-        allow read, write: if signedIn();
+      match /people/{p} {
+        allow read: if signedIn();
+        // New people are unclaimed, or claimed by me; the organizer can also bring over a crew from a past trip
+        allow create: if signedIn() && (request.resource.data.get('uid', null) == null || request.resource.data.uid == me() || isOrganizerAfter(t));
+        // Anyone can fill in details. Claiming: an unclaimed name can be taken by me; a claimed name stays with its owner
+        allow update: if signedIn() && (
+          request.resource.data.get('uid', null) == resource.data.get('uid', null)
+          || (resource.data.get('uid', null) == null && request.resource.data.get('uid', null) == me())
+          || resource.data.get('uid', null) == me()
+          || isOrganizer(t));
+        allow delete: if signedIn() && isOrganizer(t);
+      }
+
+      match /expenses/{e} {
+        allow read: if signedIn();
+        allow create: if signedIn() && request.resource.data.createdBy == me() && okAmount(request.resource.data.amount);
+        allow update: if signedIn() && (addedByMe() || isOrganizer(t)) && sameCreator() && okAmount(request.resource.data.amount);
+        allow delete: if signedIn() && (addedByMe() || isOrganizer(t));
+      }
+
+      match /payments/{x} {
+        allow read: if signedIn();
+        allow create: if signedIn() && request.resource.data.createdBy == me() && okAmount(request.resource.data.amount);
+        allow update: if false;
+        allow delete: if signedIn() && (addedByMe() || isOrganizer(t));
+      }
+
+      match /receipts/{r} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && request.resource.data.img is string && request.resource.data.img.size() < 1000000;
+        // The receipt goes with its expense: the expense's creator, the organizer, or anyone once the expense is gone
+        allow delete: if signedIn() && (isOrganizer(t)
+          || !exists(/databases/$(database)/documents/trips/$(t)/expenses/$(r))
+          || get(/databases/$(database)/documents/trips/$(t)/expenses/$(r)).data.get('createdBy', '') == me());
       }
     }
   }
