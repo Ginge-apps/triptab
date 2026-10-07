@@ -1,6 +1,6 @@
 {
-  "name": "Trip Tab",
-  "short_name": "Trip Tab",
+  "name": "Ted's Tab",
+  "short_name": "Ted's Tab",
   "description": "Track and settle group travel costs.",
   "start_url": "./",
   "scope": "./",

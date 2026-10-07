@@ -1,7 +1,7 @@
-// Trip Tab settings. Fill these in once during setup (see README).
+// Ted's Tab settings. Fill these in once during setup (see README).
 // Leave firebase empty to run in single-phone mode (data stays on this device).
 window.TRIPTAB_CONFIG = {
-  appName: "Trip Tab",
+  appName: "Ted's Tab",
 
   // Firebase console > Settings > General > Your apps > Web app > Config
   firebase: {
