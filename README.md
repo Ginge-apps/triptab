@@ -56,7 +56,7 @@ Until steps 2 to 4 are done, the app still works on your phone alone. Import and
 
 ## 6. Put it on your Home Screen
 
-**iPhone:** open your app address in Safari, tap Share, then **Add to Home Screen**. Open Trip Tab from the icon from then on. Trips you join in Safari stay in Safari, so always use the icon.
+**iPhone:** open your app address in Safari, tap the three dots at the bottom right, then Share, then **Add to Home Screen** (on older iPhones, Share is right on the bottom bar). Open Trip Tab from the icon from then on. Trips you join in Safari stay in Safari, so always use the icon.
 
 **Android:** open the address in Chrome, tap the menu, then **Install app**.
 

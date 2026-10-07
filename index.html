@@ -706,7 +706,7 @@ function render() {
 }
 function renderHome() {
   const trips = S.tripIds.map(id => S.trips[id] && { id, ...S.trips[id] }).filter(Boolean).sort((a, b) => (b.start || "").localeCompare(a.start || ""));
-  const installTip = !isStandalone ? `<div class="banner"><div><b>Put ${esc(APP)} on your Home Screen</b><div class="muted" style="font-size:13.5px">${isIOS ? "Tap the Share button in Safari, then Add to Home Screen. Open it from there from now on; your trips live inside the installed app." : "Open your browser menu, then Install app or Add to Home screen."}</div></div><button class="btn small ghost" data-act="install-help">Show me how</button></div>` : "";
+  const installTip = !isStandalone ? `<div class="banner"><div><b>Put ${esc(APP)} on your Home Screen</b><div class="muted" style="font-size:13.5px">${isIOS ? "In Safari, tap the three dots at the bottom right, then Share, then Add to Home Screen. (On older iPhones, Share is right on the bottom bar.) Open it from the new icon from now on; your trips live inside the installed app." : "Open your browser menu, then Install app or Add to Home screen."}</div></div><button class="btn small ghost" data-act="install-help">Show me how</button></div>` : "";
   const localNote = S.store?.mode === "local" ? `<div class="banner" style="border-color:var(--warn)"><b>Single-phone mode</b><span class="muted" style="font-size:13.5px">Sync is not set up yet, so trips stay on this phone. Finish the Firebase step in the setup guide to share trips with your crew.</span></div>` : "";
   return `<div class="wrap">
     <div class="top-actions"><div></div><button class="icon-btn" data-act="settings" aria-label="Settings">${ICON.gear}</button></div>
@@ -1571,7 +1571,7 @@ function openSettings() {
 }
 function openInstallHelp() {
   openSheet(`${sheetHead("Home Screen")}<div class="stack">
-    <div class="card"><b>iPhone</b><ol style="margin:8px 0 0;padding-left:20px;display:grid;gap:6px"><li>Open this page in Safari.</li><li>Tap the Share button (square with an arrow).</li><li>Scroll down and tap Add to Home Screen, then Add.</li><li>Open ${esc(APP)} from the new icon. Use the icon from now on; trips you join in Safari stay in Safari.</li></ol></div>
+    <div class="card"><b>iPhone</b><ol style="margin:8px 0 0;padding-left:20px;display:grid;gap:6px"><li>Open this page in Safari.</li><li>Tap the three dots at the bottom right, then Share (the square with an arrow). On older iPhones, Share is right on the bottom bar.</li><li>Scroll down and tap Add to Home Screen, then Add.</li><li>Open ${esc(APP)} from the new icon. Use the icon from now on; trips you join in Safari stay in Safari.</li></ol></div>
     <div class="card"><b>Android</b><ol style="margin:8px 0 0;padding-left:20px;display:grid;gap:6px"><li>Open this page in Chrome.</li><li>Tap the three-dot menu.</li><li>Tap Install app or Add to Home screen.</li></ol></div>
   </div>`);
 }
