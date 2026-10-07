@@ -1,8 +1,9 @@
 rules_version = '2';
-// Trip Tab database rules, v2 (Oct 6, 2026).
+// Ted's Tab database rules, v3 (Oct 7, 2026). v3 change: anyone in the trip can fix an expense; delete stays with the creator or organizer.
 // The 6-letter trip code is the invite: anyone signed in to the app who knows it can open the trip and add to it.
 // What these rules add over v1:
-//  - Only the person who added an expense or payment, or the trip organizer, can change or delete it (decision D4).
+//  - Anyone in the trip can fix an expense, but must sign the change (editedBy). Only the person who added it, or the organizer, can delete it (D4, revised Oct 7).
+//  - Payments: only the person who recorded one, or the organizer, can delete it; nobody edits them.
 //  - Nobody can take over a trip or change who created an expense.
 //  - A crew name can only be claimed by the person claiming it, and only the organizer can remove people.
 //  - Basic checks on amounts and receipt photo size; anything outside the app's own data is refused.
@@ -41,7 +42,9 @@ service cloud.firestore {
       match /expenses/{e} {
         allow read: if signedIn();
         allow create: if signedIn() && request.resource.data.createdBy == me() && okAmount(request.resource.data.amount);
-        allow update: if signedIn() && (addedByMe() || isOrganizer(t)) && sameCreator() && okAmount(request.resource.data.amount);
+        // Anyone in the trip can fix an expense. Someone other than the creator or organizer must sign the change as themselves.
+        allow update: if signedIn() && sameCreator() && okAmount(request.resource.data.amount)
+          && (addedByMe() || isOrganizer(t) || request.resource.data.get('editedBy', '') == me());
         allow delete: if signedIn() && (addedByMe() || isOrganizer(t));
       }
 

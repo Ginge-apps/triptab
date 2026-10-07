@@ -556,7 +556,10 @@ function myPid() {
   return p ? p.id : LS.get("me:" + S.tripId, null);
 }
 function isOrganizer() { return S.trip && (S.trip.createdBy === S.uid || S.store.mode === "local"); }
-function canEditExp(e) { return isOrganizer() || e.createdBy === S.uid; }
+function canEditExp(e) { return !!S.trip; }  // anyone in the trip can fix an expense (D4, revised Oct 7)
+function canDeleteExp(e) { return isOrganizer() || e.createdBy === S.uid; }
+function whoUid(uid, fallback) { const p = uid && S.people.find(p => p.uid === uid); return p ? short(p.id) : (fallback || "someone in the trip"); }
+function timeAgo(t) { const m = Math.round((Date.now() - t) / 6e4); if (m < 1) return "just now"; if (m < 60) return m + " min ago"; const d = new Date(t); return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); }
 function skinOf(t) { return t?.skin || "passport"; }
 
 /* ===================== Claude (via Cloudflare relay) ===================== */
@@ -664,6 +667,8 @@ function openTrip(id) {
     const first = !S.loaded.expenses; S.expenses = docs; S.loaded.expenses = true;
     if (!first) for (const c of changes) if (c.type === "added" && !c.local && c.data.createdBy !== S.uid) {
       sfx("ping"); toast(`${short(Object.keys(payerMap(c.data))[0])} added ${c.data.description || "an expense"}, ${fmt(expTotal(c.data), tripCur())}`);
+    } else if (c.type === "modified" && !c.local && c.data.editedBy && c.data.editedBy !== S.uid && Date.now() - (c.data.editedAt || 0) < 12e4) {
+      toast(`${whoUid(c.data.editedBy, c.data.editedByName)} changed ${c.data.description || "an expense"}, now ${fmt(expTotal(c.data), tripCur())}`);
     }
     render();
   }));
@@ -1083,6 +1088,7 @@ async function moveLocalTrip(oldId) {
     if (!k.startsWith(base + "/")) continue;
     const rest = k.slice(base.length + 1), col = rest.split("/")[0], data = structuredClone(v);
     if ("createdBy" in data) data.createdBy = fix(data.createdBy) || S.uid;
+    if (data.editedBy) data.editedBy = fix(data.editedBy);
     if (col === "people") data.uid = fix(data.uid) || null;
     if (col === "expenses") expenses++;
     (col === "receipts" ? receipts : ops).push({ op: "set", path: nb + "/" + rest, data });
@@ -1246,7 +1252,7 @@ function openExpenseForm(d, opts = {}) {
       <input class="input" id="fNote" placeholder="Note (optional)" value="${esc(d.note || "")}">
       <div id="dupBox"></div>
       <button class="btn primary block" id="fSave">${d.id ? "Save changes" : "Save expense"}</button>
-      ${d.id && canEditExp(d) ? `<button class="btn danger block" id="fDel">Delete</button>` : ""}`;
+      ${d.id && canDeleteExp(d) ? `<button class="btn danger block" id="fDel">Delete</button>` : ""}`;
     wire();
     if ($("#rimg", host)) { if (d._thumb) $("#rimg", host).src = d._thumb; else if (d._file) $("#rimg", host).src = URL.createObjectURL(d._file); }
   }
@@ -1342,8 +1348,9 @@ function openExpenseForm(d, opts = {}) {
       }
     }
     const id = d.id || rid(12);
-    if (!d.id) { rec.createdAt = Date.now(); rec.createdBy = S.uid; }
-    else { rec.createdAt = d.createdAt || Date.now(); rec.createdBy = d.createdBy || S.uid; }
+    const myName = myPid() ? short(myPid()) : "";
+    if (!d.id) { rec.createdAt = Date.now(); rec.createdBy = S.uid; rec.createdByName = myName; }
+    else { rec.createdAt = d.createdAt || Date.now(); rec.createdBy = d.createdBy || S.uid; rec.createdByName = d.createdByName || ""; rec.editedBy = S.uid; rec.editedByName = myName; rec.editedAt = Date.now(); }
     write(S.store.set(`trips/${S.tripId}/expenses/${id}`, rec));
     if (d._file || (d._thumb && !d.id)) {
       const img = d._thumb && !d._file ? d._thumb : await thumbFor(d._file);
@@ -1374,7 +1381,9 @@ async function openExpense(id) {
       <div class="card"><span class="label">Paid</span>${Object.entries(payers).map(([p, a]) => `<div class="list-row"><span class="grow">${esc(nameOf(p))}</span><span class="num">${fmt(a, cur)}</span></div>`).join("")}</div>
       <div class="card"><span class="label">Shares${e.mode === "items" ? " (by item)" : ""}</span>${Object.entries(shares).sort((a, b) => b[1] - a[1]).map(([p, a]) => `<div class="list-row"><span class="grow">${esc(nameOf(p))}${e.split?.[p] && +e.split[p] !== 1 ? ` <span class="chip-flag">x${e.split[p]}</span>` : ""}</span><span class="num">${fmt(a, cur)}</span></div>`).join("")}</div>
       ${e.note ? `<p class="muted">${esc(e.note)}</p>` : ""}
-      ${canEditExp(e) ? `<button class="btn primary block" id="edE">Edit</button>` : `<p class="muted" style="font-size:13px">Only the person who added this, or the trip organizer, can change it.</p>`}
+      <p class="muted" style="font-size:13px">Added by ${esc(whoUid(e.createdBy, e.createdByName))}${e.createdAt ? ", " + esc(timeAgo(e.createdAt)) : ""}${e.editedBy ? `<br>Last changed by <b>${esc(whoUid(e.editedBy, e.editedByName))}</b>, ${esc(timeAgo(e.editedAt))}` : ""}</p>
+      ${canEditExp(e) ? `<button class="btn primary block" id="edE">Edit</button>` : ""}
+      ${canDeleteExp(e) ? "" : `<p class="muted" style="font-size:13px">Anyone in the trip can fix this. Only the person who added it, or the organizer, can delete it.</p>`}
     </div>`, { skin: skinOf(S.trip) });
   if ($("#edE", sh)) $("#edE", sh).onclick = () => { closeSheet(); openExpenseForm(draftFromExpense(e)); };
   if (e.hasReceipt) {
