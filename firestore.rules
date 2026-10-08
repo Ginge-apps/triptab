@@ -1,5 +1,8 @@
 rules_version = '2';
-// Ted's Tab database rules, v3 (Oct 7, 2026). v3 change: anyone in the trip can fix an expense; delete stays with the creator or organizer.
+// Ted's Tab database rules, v4 (Oct 8, 2026).
+// v3: anyone in the trip can fix an expense; delete stays with the creator or organizer.
+// v4: trip settings are organizer-only (crew may only add stored exchange rates); crew edit only their own crew entry
+//     and names nobody has claimed, and can't change anyone's 'Pays for' or days out.
 // The 6-letter trip code is the invite: anyone signed in to the app who knows it can open the trip and add to it.
 // What these rules add over v1:
 //  - Anyone in the trip can fix an expense, but must sign the change (editedBy). Only the person who added it, or the organizer, can delete it (D4, revised Oct 7).
@@ -23,19 +26,24 @@ service cloud.firestore {
       allow get: if signedIn();
       allow list: if false;  // trip codes cannot be browsed
       allow create: if signedIn() && request.resource.data.createdBy == me();
-      allow update: if signedIn() && sameCreator();
+      // Trip settings belong to the organizer. The app saves exchange rates it looked up, so crew may touch only that field.
+      allow update: if signedIn() && sameCreator() && (resource.data.createdBy == me()
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rates']));
       allow delete: if signedIn() && resource.data.createdBy == me();
 
       match /people/{p} {
         allow read: if signedIn();
         // New people are unclaimed, or claimed by me; the organizer can also bring over a crew from a past trip
         allow create: if signedIn() && (request.resource.data.get('uid', null) == null || request.resource.data.uid == me() || isOrganizerAfter(t));
-        // Anyone can fill in details. Claiming: an unclaimed name can be taken by me; a claimed name stays with its owner
-        allow update: if signedIn() && (
-          request.resource.data.get('uid', null) == resource.data.get('uid', null)
-          || (resource.data.get('uid', null) == null && request.resource.data.get('uid', null) == me())
-          || resource.data.get('uid', null) == me()
-          || isOrganizer(t));
+        // Organizer edits anyone, and can free up a claimed name (uid back to null) when someone reinstalls.
+        // Crew edit their own entry or a name nobody has claimed (and may claim it for themselves),
+        // but can't change 'Pays for' (weight) or days out, which move money.
+        allow update: if signedIn() && (isOrganizer(t) || (
+          (resource.data.get('uid', null) == null || resource.data.get('uid', null) == me())
+          && (request.resource.data.get('uid', null) == resource.data.get('uid', null)
+              || (resource.data.get('uid', null) == null && request.resource.data.get('uid', null) == me()))
+          && request.resource.data.get('weight', 1) == resource.data.get('weight', 1)
+          && request.resource.data.get('away', []) == resource.data.get('away', [])));
         allow delete: if signedIn() && isOrganizer(t);
       }
 

@@ -215,6 +215,7 @@ input,select,textarea,.input{font-size:16px}
 .qr svg{display:block;width:100%;height:auto}
 .empty{text-align:center;padding:30px 10px;display:grid;gap:10px;justify-items:center}
 .empty svg{width:56px;height:56px;color:var(--muted)}
+.empty .btn svg{width:18px;height:18px;color:inherit}
 .list-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
 .list-row:first-child{border-top:0}
 .avatar{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font:700 13px var(--body);color:#fff;flex:none}
@@ -569,6 +570,11 @@ function myPid() {
 function isOrganizer() { return S.trip && (S.trip.createdBy === S.uid || S.store.mode === "local"); }
 function canEditExp(e) { return !!S.trip; }  // anyone in the trip can fix an expense (D4, revised Oct 7)
 function canDeleteExp(e) { return isOrganizer() || e.createdBy === S.uid; }
+// Crew members edit themselves and names nobody has claimed yet; the organizer edits everyone (K15 T3)
+function canEditPerson(p) { return isOrganizer() || !p.uid || p.uid === S.uid; }
+function organizerPid() { return S.people.find(p => p.uid && p.uid === S.trip?.createdBy)?.id || null; }
+function organizerName() { const id = organizerPid(); return id ? short(id) : "the organizer"; }
+const isoToday = () => new Date().toISOString().slice(0, 10);
 function whoUid(uid, fallback) { const p = uid && S.people.find(p => p.uid === uid); return p ? short(p.id) : (fallback || "someone in the trip"); }
 function timeAgo(t) { const m = Math.round((Date.now() - t) / 6e4); if (m < 1) return "just now"; if (m < 60) return m + " min ago"; const d = new Date(t); return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); }
 function skinOf(t) { return t?.skin || "passport"; }
@@ -734,12 +740,14 @@ function renderTrip() {
   const total = S.expenses.reduce((s, e) => s + expTotal(e), 0);
   const days = tripDays(t).length || 1;
   const myBal = me && bal[me] ? bal[me].net : null;
-  const claim = !me && S.people.length ? `<div class="banner"><b>Which one are you?</b><span class="muted" style="font-size:13.5px">Tap your name so expenses default to you.</span><div class="chips">${S.people.filter(p => !p.uid).map(p => chipPerson(p, false, "claim")).join("")}<button class="chip" data-act="add-me">I'm not listed</button></div></div>` : "";
+  const claim = !me && !S.people.length && !isOrganizer() ? `<div class="banner"><b>Add yourself</b><span class="muted" style="font-size:13.5px">Nobody is on this trip's crew yet. Add your name to get started.</span><div class="chips"><button class="chip" data-act="add-me">Add me</button></div></div>`
+    : !me && S.people.length ? `<div class="banner"><b>Which one are you?</b><span class="muted" style="font-size:13.5px">Tap your name so expenses default to you.</span><div class="chips">${S.people.filter(p => !p.uid).map(p => chipPerson(p, false, "claim")).join("")}<button class="chip" data-act="add-me">I'm not listed</button></div></div>` : "";
   const header = `<div class="top-actions"><button class="icon-btn" data-act="home" aria-label="All trips">${ICON.back}</button><div class="row"><button class="icon-btn" data-act="invite" aria-label="Invite">${ICON.users}</button><button class="icon-btn" data-act="trip-settings" aria-label="Trip settings">${ICON.gear}</button></div></div>
   <header class="pass">
     <div class="pass-main">
       <div class="route">${esc(t.from || "HOME")} ${ICON.plane} ${esc(t.to || "AWAY")}</div>
       <h1>${esc(t.name)}</h1>
+      ${isOrganizer() && S.store.mode !== "local" ? `<span class="chip-flag" style="background:rgba(255,255,255,.16);color:var(--hero-ink);margin-bottom:4px;display:inline-block;width:max-content;justify-self:start;align-self:start">You're the organizer</span>` : ""}
       <div class="pass-meta">
         <div><span class="k">Dates</span><span class="v">${t.start ? esc(shortDate(t.start)) + (t.end ? "-" + esc(shortDate(t.end)) : "") : "Open"}</span></div>
         <div><span class="k">Crew</span><span class="v">${S.people.length}</span></div>
@@ -791,7 +799,7 @@ function kittyCard(bal) {
       <div style="font:800 32px/1 var(--display)" class="num ${k.left < 0 ? "bad" : ""}">${fmt(k.left, cur)}</div>
       <div class="muted num" style="font-size:12.5px">${fmt(k.inn, cur)} in · ${fmt(k.spent, cur)} spent${k.out ? " · " + fmt(k.out, cur) + " paid back" : ""}</div></div>
       <div class="stack" style="gap:6px"><button class="btn small primary" data-act="kitty-topup">Top up</button><button class="btn small ghost" data-act="kitty-spend">Spend</button></div></div>
-    <button class="link" data-act="kitty-setup" style="font-size:12.5px;justify-self:start">Pot settings</button>
+    ${isOrganizer() ? `<button class="link" data-act="kitty-setup" style="font-size:12.5px;justify-self:start">Pot settings</button>` : ""}
     <div class="gauge"><span style="width:${pct}%"></span></div>
     ${isLow ? `<div class="bad" style="font-size:13px;font-weight:600">Running low. Time for a top up.</div>` : ""}
   </div>`;
@@ -867,13 +875,13 @@ function renderSettle(bal) {
   const pays = [...S.payments].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return `${kittyOn() ? `<div class="section">${kittyCard(bal)}</div>` : ""}
   ${S.expenses.some(e => e.currency && e.currency !== cur) ? `<div class="section"><span class="hint">Some expenses were in other currencies and converted at estimated rates, so balances are close but may differ slightly from what cards actually charged.</span></div>` : ""}<div class="section"><div class="section-head"><span class="label">Balances${byHH ? " by household" : ""}</span><span class="muted" style="font-size:12.5px">green is owed, red owes</span></div><div class="card stack">${rows || '<span class="muted">Add your crew first.</span>'}</div>
-    ${households().length ? `<label class="toggle"><span style="font-size:14px">Settle by household</span><button class="switch" role="switch" aria-checked="${byHH}" data-act="toggle-hh"></button></label>` : ""}</div>
+    ${households().length ? isOrganizer() ? `<label class="toggle"><span style="font-size:14px">Settle by household</span><button class="switch" role="switch" aria-checked="${byHH}" data-act="toggle-hh"></button></label>` : `<span class="hint">${byHH ? "Settling by household" : "Settling person by person"}, set by the organizer.</span>` : ""}</div>
   <div class="section"><div class="section-head"><span class="label">Who pays whom</span>
-    <div class="chips"><button class="chip" aria-pressed="${mode !== "hub"}" data-act="settle-mode" data-mode="fewest">Fewest payments</button><button class="chip" aria-pressed="${mode === "hub"}" data-act="settle-mode" data-mode="hub">Through one person</button></div></div>
-    ${mode === "hub" ? `<div class="row"><span class="muted" style="font-size:13.5px">Everyone settles with</span><select class="input" style="width:auto;min-height:38px" id="hubSel">${S.people.map(p => `<option value="${p.id}" ${p.id === hubP ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></div>` : ""}
+    ${isOrganizer() ? `<div class="chips"><button class="chip" aria-pressed="${mode !== "hub"}" data-act="settle-mode" data-mode="fewest">Fewest payments</button><button class="chip" aria-pressed="${mode === "hub"}" data-act="settle-mode" data-mode="hub">Through one person</button></div>` : `<span class="muted" style="font-size:12.5px">${mode === "hub" ? "Everyone settles with " + esc(short(hubP)) : "Fewest payments"} (set by the organizer)</span>`}</div>
+    ${mode === "hub" && isOrganizer() ? `<div class="row"><span class="muted" style="font-size:13.5px">Everyone settles with</span><select class="input" style="width:auto;min-height:38px" id="hubSel">${S.people.map(p => `<option value="${p.id}" ${p.id === hubP ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></div>` : ""}
     ${tickets}
     ${S.settings.tease && plan.length ? `<button class="btn ghost block" data-act="tease-worst">Roast whoever owes the most</button>` : ""}
-    ${!kittyOn() ? `<button class="btn ghost block" data-act="kitty-setup">Start a slush fund or kitty</button>` : ""}
+    ${!kittyOn() && isOrganizer() ? `<button class="btn ghost block" data-act="kitty-setup">Start a slush fund or kitty</button>` : ""}
   </div>
   ${pays.length ? `<div class="section"><span class="label">Payments recorded</span><div class="card">${pays.map(p => `<div class="list-row"><div class="grow"><b>${esc(short(p.from))}</b> ${p.to === KITTY ? "put into" : "paid"} <b>${esc(short(p.to))}</b><div class="muted" style="font-size:12.5px">${esc(p.date ? shortDate(p.date) : "")}</div></div><span class="num" style="font-weight:600">${fmt(p.amount, cur)}</span>${p.createdBy === S.uid || isOrganizer() ? `<button class="btn small ghost" data-act="undo-pay" data-id="${p.id}">Undo</button>` : ""}</div>`).join("")}</div></div>` : ""}`;
 }
@@ -945,15 +953,15 @@ function renderCrew(bal) {
   const cur = tripCur(), badges = computeBadges(bal);
   return `<div class="section"><div class="section-head"><span class="label">Crew</span><span class="muted" style="font-size:13px">${S.people.length} people${households().length ? " · " + households().length + (households().length > 1 ? " households" : " household") : ""}</span></div>
     <div class="card">${S.people.map(p => `<div class="list-row"><span class="avatar" style="background:${p.color}">${esc(initials(p.nickname || p.name))}</span>
-      <div class="grow"><div style="font-weight:600">${esc(p.nickname || p.name)} ${p.uid ? `<span class="chip-flag">${p.uid === S.uid ? "You" : "Joined"}</span>` : ""}</div>
+      <div class="grow"><div style="font-weight:600">${esc(p.nickname || p.name)} ${p.uid ? `<span class="chip-flag">${p.uid === S.uid ? "You" : "Joined"}</span>` : ""}${p.uid && p.uid === S.trip.createdBy ? ` <span class="chip-flag">Organizer</span>` : ""}</div>
       <div class="muted" style="font-size:12.5px">${[p.nickname && p.name, p.household && p.household.trim()].filter(Boolean).map(esc).join(" · ")}${p.nickname || p.household ? "<br>" : ""}${[p.venmo && "Venmo", p.revolut && "Revolut", p.zelle && "Zelle", p.paypal && "PayPal", p.other && "Other"].filter(Boolean).join(" · ") || "No payment details"}${p.cards ? " · card " + esc(p.cards.split(" ").map(c => "..." + c).join(", ")) : ""}${+p.weight > 0 && +p.weight !== 1 ? "" : ""}${p.away?.length ? " · out " + p.away.length + " day" + (p.away.length > 1 ? "s" : "") : ""}${+p.weight > 0 && +p.weight !== 1 ? " · pays for " + p.weight : ""}</div>
       ${badges[p.id] ? `<div class="chips" style="gap:5px;margin-top:6px">${badges[p.id].map(b => `<span class="badge" title="${esc(b.why)}">${esc(b.title)}</span>`).join("")}</div>` : ""}</div>
       <span class="num ${bal[p.id]?.net > .004 ? "good" : bal[p.id]?.net < -.004 ? "bad" : "muted"}" style="font-size:13px;font-weight:600">${sfmt(bal[p.id]?.net || 0, cur)}</span>
-      <button class="btn small ghost" data-act="edit-person" data-pid="${p.id}">Edit</button></div>`).join("") || '<span class="muted">No one yet.</span>'}</div>
+      ${canEditPerson(p) ? `<button class="btn small ghost" data-act="edit-person" data-pid="${p.id}">Edit</button>` : ""}</div>`).join("") || '<span class="muted">No one yet.</span>'}</div>
     <div class="two"><button class="btn primary" data-act="add-person">${ICON.plus} Add person</button><button class="btn ghost" data-act="paste-names">Paste names</button></div>
     ${"contacts" in navigator && "select" in (navigator.contacts || {}) ? `<button class="btn ghost block" data-act="contacts">Pick from contacts</button>` : ""}
     <button class="btn ghost block" data-act="invite">Invite with code or QR</button>
-    <p class="muted" style="font-size:12.5px;margin:0">Give a couple or family the same household name to settle them as one. Nicknames show everywhere in place of first names.</p>
+    <p class="muted" style="font-size:12.5px;margin:0">Give a couple or family the same household name to settle them as one. Nicknames show everywhere in place of first names.${isOrganizer() ? "" : " You can edit your own details and anyone who hasn't joined yet. The organizer can edit everyone."}</p>
   </div>`;
 }
 
@@ -963,7 +971,7 @@ const ACT = {
   home: () => goHome(),
   "open-trip": el => openTrip(el.dataset.id),
   tab: el => { S.tab = el.dataset.tab; LS.set("tab", S.tab); render(); scrollTo(0, 0); },
-  add: () => openAddMenu(),
+  add: () => whoFirst(openAddMenu),
   exp: el => openExpense(el.dataset.id),
   review: el => { const r = S.inbox.find(x => x.id === el.dataset.id); if (r) openExpenseForm(draftFromReceipt(r), { inboxId: r.id }); },
   "new-trip": () => openTripForm(),
@@ -1002,6 +1010,16 @@ function tease(pid) {
   const line = pick(TEASE)(short(pid), spokenMoney(v, tripCur()));
   sfx("sad"); toast(line, 5000); setTimeout(() => say(line), 600);
 }
+// Before anyone adds an expense the app needs to know who they are, so the payer defaults correctly
+function whoFirst(next) {
+  if (myPid() || !S.people.length && isOrganizer()) return next();
+  const free = S.people.filter(p => !p.uid);
+  openSheet(`${sheetHead("Which one are you?")}<div class="stack"><p class="muted" style="margin:0">Tap your name once. New expenses then start with you as the payer.</p>
+    <div class="chips">${free.map(p => chipPerson(p, false, "", `data-who="${p.id}"`)).join("")}<button class="chip" data-who="">I'm not listed</button></div></div>`, {
+    skin: skinOf(S.trip),
+    onMount(sh) { sh.querySelectorAll("[data-who]").forEach(b => b.onclick = () => { closeSheet(); if (b.dataset.who) { claimPerson(b.dataset.who); setTimeout(next, 250); } else openPersonForm(null, true); }); }
+  });
+}
 function claimPerson(pid) {
   LS.set("me:" + S.tripId, pid);
   write(S.store.update(`trips/${S.tripId}/people/${pid}`, { uid: S.uid }));
@@ -1015,11 +1033,15 @@ function markPaid(from, to, amount) {
 
 /* ---------- Exchange rates and dictation ---------- */
 // Daily reference rates from free public services (no key). Cached per day on this phone.
-async function fetchRate(from, to) {
+// date: the expense's date (YYYY-MM-DD). Past dates use that day's reference rate; today or later uses the latest.
+async function fetchRate(from, to, date) {
   if (!from || !to || from === to) return 1;
-  const key = `fx:${from}:${to}:${todayISO()}`;
+  const past = date && date < todayISO();
+  const key = `fx:${from}:${to}:${past ? date : todayISO()}`;
   const hit = LS.get(key, null); if (hit) return hit;
-  const sources = [
+  const sources = past ? [
+    async () => (await (await fetch(`https://api.frankfurter.dev/v1/${date}?from=${from}&to=${to}`)).json()).rates?.[to]
+  ] : [
     async () => (await (await fetch(`https://api.frankfurter.dev/v1/latest?from=${from}&to=${to}`)).json()).rates?.[to],
     async () => (await (await fetch(`https://open.er-api.com/v6/latest/${from}`)).json()).rates?.[to]
   ];
@@ -1210,10 +1232,13 @@ function draftFromText(x) {
 
 /* ---------- Expense form ---------- */
 function defaultWeight(p) { return +p.weight > 0 ? +p.weight : 1; }
-function blankDraft() {
+// New expenses: the person entering it paid, and only they are in the split until others are tapped in (K15 T4).
+// everyone = true for pot spends and picker rounds, which are for the whole group.
+function blankDraft(everyone) {
   const me = myPid();
-  const d = { id: null, description: "", amount: "", currency: tripCur(), rate: "", date: todayISO(), category: "Food", paidBy: me || S.people[0]?.id || null, multi: false, payers: {}, split: {}, mode: "even", items: null, refund: false, note: "", source: "manual", unknown: [] };
-  for (const p of S.people) d.split[p.id] = defaultWeight(p);
+  const d = { id: null, description: "", amount: "", currency: tripCur(), rate: "", date: todayISO(), category: "Food", paidBy: me || null, multi: false, payers: {}, split: {}, mode: "even", items: null, refund: false, note: "", source: "manual", unknown: [] };
+  if (everyone) for (const p of S.people) d.split[p.id] = defaultWeight(p);
+  else if (me) d.split[me] = defaultWeight(personById(me));
   applyAway(d);
   return d;
 }
@@ -1245,7 +1270,8 @@ function openExpenseForm(d, opts = {}) {
       <div class="amount-row">${multiCur() || nonTrip || d.forceCur ? `<select id="fCur" aria-label="Currency">${curOpts}</select>` : `<button type="button" class="cur-tag mono" id="fCurTag" title="Use another currency">${cur}</button>`}<input class="amount-in num" id="fAmt" inputmode="decimal" placeholder="0.00" value="${esc(d.amount)}" aria-label="Amount"></div>
       ${nonTrip ? `<div class="field"><span class="label">Rate: 1 ${d.currency} = ? ${cur}</span><div class="row"><input class="input num" id="fRate" inputmode="decimal" value="${esc(d.rate)}" placeholder="${d.rateLoading ? "Getting today's rate" : "e.g. 1.08"}" style="max-width:140px"><span class="muted num" style="font-size:13.5px">${+d.amount && +d.rate ? "= " + fmt(+d.amount * +d.rate, cur) : d.rateLoading ? '<span class="spinner" style="width:12px;height:12px;vertical-align:-2px"></span>' : "Locked when you save"}</span></div><span class="hint">${esc(d.rateNote || (d.rateLoading ? "" : "Could not get today's rate. Type it in, or enter what your card actually billed in " + cur + " and switch the currency to " + cur + "."))} Converted amounts are estimates, not exact to what cards charge.</span></div>` : ""}
       <div class="row"><input class="input grow" id="fDesc" placeholder="What was it? (Dinner at Taberna)" value="${esc(d.description)}"><button type="button" class="icon-btn" id="fDescMic" aria-label="Say what it was" style="flex:none;width:46px;height:46px">${ICON.mic}</button></div>
-      <div class="two"><input class="input" type="date" id="fDate" value="${esc(d.date || "")}"><label class="toggle card" style="padding:0 12px;min-height:46px"><span>Refund</span><button class="switch" role="switch" aria-checked="${!!d.refund}" id="fRefund" aria-label="Refund"></button></label></div>
+      ${d.refund ? `<div class="warn-box"><span><b>Refund.</b> Money coming back to the group, so it lowers the totals. <button class="link" id="fRefundOff">Not a refund</button></span></div>` : ""}
+      <input class="input" type="date" id="fDate" value="${esc(d.date || "")}" aria-label="Date">
       <div class="chips">${CATS.map(c => `<button class="chip" aria-pressed="${d.category === c}" data-cat="${c}">${c}</button>`).join("")}</div>
       <div class="field"><div class="section-head"><span class="label">Paid by</span><button class="link" id="fMulti" style="font-size:13px">${d.multi ? "One payer" : "Several people paid"}</button></div>
         ${d.multi ? `<div class="stack" style="gap:8px">${people().map(p => `<div class="row"><span class="avatar" style="background:${p.color};width:30px;height:30px;font-size:11px">${esc(initials(p.name))}</span><span class="grow">${esc(p.name)}</span><input class="input num" style="max-width:120px;min-height:40px" inputmode="decimal" data-payer="${p.id}" value="${esc(d.payers[p.id] ?? "")}" placeholder="0"></div>`).join("")}
@@ -1256,12 +1282,16 @@ function openExpenseForm(d, opts = {}) {
         ${showShares ? `<div class="stack" style="gap:8px">${people().map(p => `<div class="row"><span class="grow">${esc(p.name)}</span><span class="muted num" style="font-size:12.5px;min-width:70px;text-align:right">${shares[p.id] ? fmt(shares[p.id], cur) : ""}</span><span class="stepper"><button data-w="${p.id}" data-d="-0.5" aria-label="Less">-</button><span class="num" style="min-width:28px;text-align:center">${+d.split[p.id] || 0}</span><button data-w="${p.id}" data-d="0.5" aria-label="More">+</button></span></div>`).join("")}</div><span class="muted" style="font-size:12.5px">Shares weight the split. A couple can count as 2, a kid as 0.5, a single room as 2.</span>`
           : `${households().length ? `<div class="chips" style="margin-bottom:8px">${households().map(u => `<button class="chip hh-chip" aria-pressed="${u.members.every(m => +d.split[m] > 0)}" data-hh="${esc(u.key)}">${esc(u.label)} (${u.members.length})</button>`).join("")}<span class="hint" style="flex-basis:100%">Tap a household to add or remove all its members at once.</span></div>` : ""}<div class="chips">${people().map(p => chipPerson(p, +d.split[p.id] > 0, "", `data-split="${p.id}"`)).join("")}</div>`}
         ${awayToday.length ? `<span class="muted" style="font-size:12.5px">${awayToday.map(p => esc(dn(p))).join(", ")} marked out this day and left off.</span>` : ""}
-        <div class="split-sum num">${parts.length ? `${parts.length} people · ${Object.values(shares).length ? fmt(Math.max(...Object.values(shares)), cur) + (new Set(Object.values(shares).map(v => v.toFixed(2))).size > 1 ? " max each" : " each") : ""}` : "Pick at least one person"}</div>
+        <div class="split-sum num">${parts.length ? `${parts.length} ${parts.length === 1 ? "person" : "people"} · ${Object.values(shares).length ? fmt(Math.max(...Object.values(shares)), cur) + (new Set(Object.values(shares).map(v => v.toFixed(2))).size > 1 ? " max each" : " each") : ""}` : "Pick at least one person"}</div>
       </div>
       ${d.items?.length ? `<div class="field"><div class="section-head"><span class="label">Receipt items</span><label class="row" style="gap:8px;font-size:13px">Split by item <button class="switch" role="switch" aria-checked="${d.mode === "items"}" id="fItems"></button></label></div>
         ${d.mode === "items" ? `<span class="muted" style="font-size:12.5px">Tap who had each item. Untapped items split across everyone above. Tax and tip spread in proportion.</span>` : ""}
         <div>${d.items.map((it, i) => `<div class="line-item"><span>${esc(it.name)}</span><span class="num" style="text-align:right">${fmt(it.amount, d.currency)}</span>${d.mode === "items" ? `<div class="chips">${people().filter(p => +d.split[p.id] > 0).map(p => `<button class="chip" aria-pressed="${it.pids?.includes(p.id) || false}" data-item="${i}" data-ip="${p.id}">${esc(dn(p))}</button>`).join("")}</div>` : ""}</div>`).join("")}</div></div>` : ""}
-      <input class="input" id="fNote" placeholder="Note (optional)" value="${esc(d.note || "")}">
+      <details class="more" ${d.refund || d.note ? "open" : ""}><summary class="link" style="font-size:13.5px">More options</summary>
+        <div class="stack" style="margin-top:10px">
+          <input class="input" id="fNote" placeholder="Note (optional)" value="${esc(d.note || "")}">
+          <label class="toggle card" style="padding:0 12px;min-height:46px"><span>This is a refund<br><span class="hint">Money coming back, like a returned deposit. Lowers the totals.</span></span><button class="switch" role="switch" aria-checked="${!!d.refund}" id="fRefund" aria-label="Refund"></button></label>
+        </div></details>
       <div id="dupBox"></div>
       <button class="btn primary block" id="fSave">${d.id ? "Save changes" : "Save expense"}</button>
       ${d.id && canDeleteExp(d) ? `<button class="btn danger block" id="fDel">Delete</button>` : ""}`;
@@ -1271,11 +1301,12 @@ function openExpenseForm(d, opts = {}) {
   async function ensureRate() {
     if (d.currency === cur || +d.rate > 0) return;
     d.rateLoading = true; draw();
-    const r = await fetchRate(d.currency, cur);
+    const r = await fetchRate(d.currency, cur, d.date);
     d.rateLoading = false;
     if ($("#fAmt", host)) readInputs(); // keep whatever was typed while waiting
     if (+d.rate > 0) { draw(); return; }
-    if (r) { d.rate = r; d.rateNote = rateMode() === "fixed" ? "Today's rate, now fixed for this trip." : "Today's rate, filled in for you."; }
+    const past = d.date && d.date < todayISO();
+    if (r) { d.rate = r; d.rateAuto = true; d.rateNote = rateMode() === "fixed" ? "Today's rate, now fixed for this trip." : past ? `The rate on ${shortDate(d.date)}, filled in for you.` : "Today's rate, filled in for you."; }
     else if (S.trip.rates?.[d.currency]) { d.rate = S.trip.rates[d.currency]; d.rateNote = "Offline, so the last rate used on this trip."; }
     draw();
   }
@@ -1283,8 +1314,9 @@ function openExpenseForm(d, opts = {}) {
   function readInputs() {
     d.amount = $("#fAmt", host).value.replace(",", ".").trim();
     d.description = $("#fDesc", host).value; d.note = $("#fNote", host).value;
-    const nd = $("#fDate", host).value; if (nd !== d.date) { d.date = nd; if (!d.id) { for (const p of S.people) if (!(p.id in d.split) && !p.away?.includes(nd)) d.split[p.id] = defaultWeight(p); applyAway(d); } }
-    if ($("#fRate", host)) d.rate = $("#fRate", host).value.replace(",", ".").trim();
+    const nd = $("#fDate", host).value; let dateMoved = false; if (nd !== d.date) { d.date = nd; dateMoved = true; if (!d.id) applyAway(d); }
+    if ($("#fRate", host)) { const typed = $("#fRate", host).value.replace(",", ".").trim(); if (typed !== String(d.rate)) d.rateAuto = false; d.rate = typed; }
+    if (dateMoved && d.currency !== cur && rateMode() !== "fixed" && (d.rateAuto || !+d.rate)) { d.rate = ""; d.rateNote = ""; d.rateRefresh = true; }
     host.querySelectorAll("[data-payer]").forEach(i => { const v = i.value.replace(",", ".").trim(); if (v === "") delete d.payers[i.dataset.payer]; else d.payers[i.dataset.payer] = v; });
   }
   function wire() {
@@ -1293,8 +1325,9 @@ function openExpenseForm(d, opts = {}) {
     host.querySelectorAll("[data-hh]").forEach(b => b.onclick = () => { readInputs(); const u = households().find(x => x.key === b.dataset.hh); if (!u) return; const on = u.members.every(m => +d.split[m] > 0); u.members.forEach(m => on ? delete d.split[m] : d.split[m] = defaultWeight(personById(m))); draw(); });
     if ($("#fCur", host)) $("#fCur", host).onchange = e => { readInputs(); d.currency = e.target.value; d.rate = ""; d.rateNote = ""; if (d.currency !== cur && rateMode() === "fixed" && S.trip.rates?.[d.currency]) { d.rate = S.trip.rates[d.currency]; d.rateNote = "The trip's fixed rate."; } draw(); ensureRate(); };
     $("#fAmt", host).oninput = () => { if ($("#paySum", host)) { readInputs(); $("#paySum", host).innerHTML = payerSumText(); } };
-    $("#fDate", host).onchange = re;
+    $("#fDate", host).onchange = () => { readInputs(); draw(); if (d.rateRefresh) { d.rateRefresh = false; ensureRate(); } };
     $("#fRefund", host).onclick = () => { readInputs(); d.refund = !d.refund; draw(); };
+    if ($("#fRefundOff", host)) $("#fRefundOff", host).onclick = () => { readInputs(); d.refund = false; draw(); };
     host.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { readInputs(); d.category = b.dataset.cat; draw(); });
     host.querySelectorAll("[data-payby]").forEach(b => b.onclick = () => { readInputs(); d.paidBy = b.dataset.payby; d._cardNote = null; draw(); });
     host.querySelectorAll("[data-payer]").forEach(i => i.oninput = () => { readInputs(); $("#paySum", host).innerHTML = payerSumText(); });
@@ -1368,7 +1401,7 @@ function openExpenseForm(d, opts = {}) {
       const img = d._thumb && !d._file ? d._thumb : await thumbFor(d._file);
       write(S.store.set(`trips/${S.tripId}/receipts/${id}`, { img, at: Date.now() }), "The receipt photo did not upload. The expense itself saved.");
     }
-    if (rec.rate && (rateMode() !== "fixed" || !S.trip.rates?.[rec.currency] || d.rateNote === "Rate you entered.")) write(S.store.update("trips/" + S.tripId, { ["rates." + rec.currency]: rec.rate }));
+    if (rec.rate && (rateMode() !== "fixed" || !S.trip.rates?.[rec.currency] || (isOrganizer() && d.rateNote === "Rate you entered."))) write(S.store.update("trips/" + S.tripId, { ["rates." + rec.currency]: rec.rate }));
     if (opts.inboxId) S.inbox = S.inbox.filter(r => r.id !== opts.inboxId);
     closeSheet(); render();
     const tot = Math.abs(expTotal(rec));
@@ -1409,12 +1442,29 @@ async function openExpense(id) {
 function newPerson(name, order) { return { name: String(name).trim(), nickname: "", household: "", order, color: PCOLORS[order % PCOLORS.length], venmo: "", revolut: "", zelle: "", paypal: "", other: "", cards: "", uid: null, away: [], weight: 1 }; }
 function cleanCards(v) { return [...new Set((String(v || "").match(/\d{4}(?!\d)/g) || []).map(x => x.slice(-4)))].slice(0, 4).join(" "); }
 function personByCard(last4) { const c = String(last4 || "").replace(/\D/g, "").slice(-4); if (c.length !== 4) return null; return S.people.find(p => (p.cards || "").split(/\s+/).includes(c)) || null; }
+function openTripInfo(t) {
+  const rm = t.rateMode === "fixed" ? "One rate for the whole trip" : "Rate for each expense's date";
+  const sm = t.settleMode === "hub" ? "Everyone settles with " + short(t.hub || S.people[0]?.id) : "Fewest payments";
+  const row = (k, v) => `<div class="list-row"><span class="grow muted">${esc(k)}</span><b style="text-align:right">${esc(v)}</b></div>`;
+  openSheet(`${sheetHead("Trip info")}
+    <div class="stack">
+      <div class="card">${row("Trip", t.name)}${row("Dates", t.start ? shortDate(t.start) + (t.end ? " to " + shortDate(t.end) : "") : "Open")}${row("Trip currency", t.currency)}${t.multiCurrency || Object.keys(t.rates || {}).length ? row("Exchange rates", rm) : ""}${row("Settle up", sm)}${row("Organizer", organizerName())}</div>
+      <p class="muted" style="font-size:13px;margin:0">These are set by the organizer so they stay the same for everyone. Sounds, voice, roasts and vibration are on this phone's Settings, on the home screen.</p>
+      <button class="btn ghost block" data-act="export">${ICON.sheet} Export to spreadsheet</button>
+      <button class="btn ghost block" id="tLeave">Remove from this phone</button>
+    </div>`, {
+    skin: skinOf(t),
+    onMount(sh) { $("#tLeave", sh).onclick = () => { S.tripIds = S.tripIds.filter(x => x !== S.tripId); LS.set("trips", S.tripIds); S.unsubTrips[S.tripId]?.(); delete S.unsubTrips[S.tripId]; closeSheet(); goHome(); toast("Removed from this phone. Rejoin any time with the code."); }; }
+  });
+}
 function openTripForm(t) {
+  if (t && !isOrganizer()) return openTripInfo(t);
   const editing = !!t;
   t = t ? { ...t } : { name: "", from: "", to: "", start: todayISO(), end: "", currency: "USD", skin: "passport" };
   const past = S.tripIds.filter(id => id !== S.tripId && S.trips[id]);
   openSheet(`${sheetHead(editing ? "Trip settings" : "New trip")}
     <div class="stack">
+      ${editing ? "" : `<label class="field"><span class="label">Your name</span><input class="input" id="tMe" placeholder="e.g. Ted Brown" autocomplete="name"><span class="hint">You're the organizer of this trip. You're added to the crew first; add everyone else next.</span></label>`}
       <input class="input" id="tName" placeholder="Trip name (Lisbon Golf 2026)" value="${esc(t.name)}">
       <div class="two"><input class="input mono" id="tFrom" maxlength="4" placeholder="From (DTW)" value="${esc(t.from || "")}" style="text-transform:uppercase"><input class="input mono" id="tTo" maxlength="4" placeholder="To (LIS)" value="${esc(t.to || "")}" style="text-transform:uppercase"></div>
       <div class="two"><label class="field"><span class="label">Start</span><input class="input" type="date" id="tStart" value="${esc(t.start || "")}"></label><label class="field"><span class="label">End</span><input class="input" type="date" id="tEnd" value="${esc(t.end || "")}"></label></div>
@@ -1441,6 +1491,9 @@ function openTripForm(t) {
       $("#tMulti", sh).onclick = e => { t.multiCurrency = !t.multiCurrency; e.currentTarget.setAttribute("aria-checked", t.multiCurrency); };
       sh.querySelectorAll("[data-skin-pick]").forEach(b => b.onclick = () => { t.skin = b.dataset.skinPick; sh.dataset.skin = t.skin; sh.querySelectorAll("[data-skin-pick]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
       $("#tSave", sh).onclick = async () => {
+        if ($("#tStart", sh).value && $("#tEnd", sh).value && $("#tEnd", sh).value < $("#tStart", sh).value) { const a = $("#tStart", sh).value; $("#tStart", sh).value = $("#tEnd", sh).value; $("#tEnd", sh).value = a; toast("The end date was before the start, so I swapped them."); }
+        const myName = $("#tMe", sh)?.value.trim() || "";
+        if (!editing && !myName && !$("#tCrew", sh)?.value) { toast("Enter your name first."); $("#tMe", sh)?.focus(); return; }
         const rec = { name: $("#tName", sh).value.trim() || "Trip", from: $("#tFrom", sh).value.trim().toUpperCase(), to: $("#tTo", sh).value.trim().toUpperCase(), start: $("#tStart", sh).value || null, end: $("#tEnd", sh).value || null, currency: $("#tCur", sh).value, skin: t.skin || "passport", multiCurrency: !!t.multiCurrency, rateMode: t.rateMode === "fixed" ? "fixed" : "daily", picker: t.picker === "dice" ? "dice" : "wheel", budget: parseFloat($("#tBudget", sh).value) || null };
         const editedRates = {}; sh.querySelectorAll("[data-ratecur]").forEach(i => { const v = parseFloat(String(i.value).replace(",", ".")); if (v > 0) editedRates[i.dataset.ratecur] = v; });
         if (Object.keys(editedRates).length) rec.rates = { ...(t.rates || {}), ...editedRates };
@@ -1453,11 +1506,18 @@ function openTripForm(t) {
         Object.assign(rec, { createdBy: S.uid, createdAt: Date.now(), settleMode: "fewest", hub: null, rates: {} });
         const ops = [{ op: "set", path: "trips/" + id, data: rec }];
         const from = $("#tCrew", sh)?.value;
+        let mePid = null;
         if (from) {
           const src = await new Promise(res => { const un = S.store.sub(`trips/${from}/people`, docs => { setTimeout(() => un()); res(docs); }); });
           src.forEach((p, i) => ops.push({ op: "set", path: `trips/${id}/people/${p.id}`, data: { ...newPerson(p.name, i), nickname: p.nickname || "", household: p.household || "", color: p.color, venmo: p.venmo || "", revolut: p.revolut || "", zelle: p.zelle || "", paypal: p.paypal || "", other: p.other || "", cards: p.cards || "", uid: p.uid || null, weight: p.weight || 1 } }));
         }
+        if (myName) { // put the organizer in the crew, claimed; reuse a brought-over name that matches
+          const hit = ops.find(o => o.path.startsWith(`trips/${id}/people/`) && o.data.name.trim().toLowerCase() === myName.toLowerCase());
+          if (hit) { hit.data.uid = S.uid; mePid = hit.path.split("/").pop(); }
+          else { mePid = rid(8); ops.splice(1, 0, { op: "set", path: `trips/${id}/people/${mePid}`, data: { ...newPerson(myName, 0), order: -1, uid: S.uid } }); }
+        }
         await write(S.store.batch(ops));
+        if (mePid) LS.set("me:" + id, mePid);
         S.tripIds.push(id); LS.set("trips", S.tripIds); S.trips[id] = rec; watchTrip(id);
         closeSheet(); S.tab = from ? "feed" : "crew"; openTrip(id); sfx("paid");
         toast(from ? "Trip created with your crew" : "Trip created. Add your crew next.");
@@ -1475,16 +1535,37 @@ function openTripForm(t) {
 function openJoin() {
   openSheet(`${sheetHead("Join a trip")}<div class="stack"><p class="muted" style="margin:0">Ask the organizer for the 6-letter trip code, or scan their QR code with your camera.</p><input class="input mono" id="jc" maxlength="8" placeholder="TRIP CODE" style="text-transform:uppercase;font-size:22px;text-align:center;letter-spacing:.2em"><button class="btn primary block" id="jGo">Join</button></div>`, { onMount(sh) { $("#jGo", sh).onclick = () => { const c = $("#jc", sh).value; closeSheet(); joinTrip(c); }; } });
 }
+function inviteText(url) {
+  const c = S.tripId, by = myPid() ? short(myPid()) : "";
+  return `${by ? by + " added you to" : "Join"} ${S.trip.name} on ${APP}, for tracking and splitting trip costs. Takes 2 minutes.
+
+Link: ${url}
+Trip code: ${c}
+
+iPHONE
+1. Open the link in Safari.
+2. Tap the three dots at the bottom right, then Share, then Add to Home Screen, then Add.
+3. Open ${APP} from the new icon (always use the icon, not Safari).
+4. Tap Join with code, enter ${c}, then tap your name.
+
+ANDROID
+1. Open the link in Chrome.
+2. Tap the three dots at the top right, then Add to home screen (or Install app).
+3. Open ${APP} from the new icon.
+4. If the trip isn't already open, tap Join with code and enter ${c}. Then tap your name.
+
+If it asks for the camera or microphone, tap Allow.`;
+}
 async function openInvite() {
   const url = location.origin + location.pathname + "?join=" + S.tripId;
   const sh = openSheet(`${sheetHead("Invite your crew")}
     <div class="stack" style="text-align:center">
       <div class="qr" id="qrBox"><span class="spinner"></span></div>
       <div><div class="label">Trip code</div><div style="font:800 44px/1 var(--display);letter-spacing:.12em">${esc(S.tripId)}</div></div>
-      <div class="two"><button class="btn" data-act="copy" data-text="${esc(url)}">Copy link</button>${navigator.share ? `<button class="btn primary" id="shareInv">Share</button>` : `<button class="btn" data-act="copy" data-text="${esc(S.tripId)}">Copy code</button>`}</div>
-      <p class="muted" style="font-size:13.5px;text-align:left;margin:0">On iPhone, friends open the link, add the app to their Home Screen, open it from there, then tap Join with code. On Android they can join straight from the link. Once in, they tap their name to claim it.</p>
+      <div class="two"><button class="btn" data-act="copy" data-text="${esc(inviteText(url))}">Copy invite</button>${navigator.share ? `<button class="btn primary" id="shareInv">Share</button>` : `<button class="btn" data-act="copy" data-text="${esc(url)}">Copy link</button>`}</div>
+      <p class="muted" style="font-size:13.5px;text-align:left;margin:0">Share or copy the invite into your group chat. It has the link, the code, and the steps for iPhone and Android.${S.people.filter(p => !p.uid).length ? "" : " Add everyone's names in the Crew tab first, so each person has a name to tap."}</p>
     </div>`, { skin: skinOf(S.trip) });
-  if ($("#shareInv", sh)) $("#shareInv", sh).onclick = () => navigator.share({ title: S.trip.name, text: `Join our ${S.trip.name} tab. Trip code ${S.tripId}.`, url }).catch(() => {});
+  if ($("#shareInv", sh)) $("#shareInv", sh).onclick = () => navigator.share({ title: S.trip.name, text: inviteText(url) }).catch(() => {});
   try {
     await loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js");
     const q = window.qrcode(0, "M"); q.addData(url); q.make();
@@ -1514,15 +1595,17 @@ function openPersonForm(p, claimSelf) {
       <div class="field"><span class="label">Card last 4 digits (optional)</span>
         <input class="input mono" id="pCard" inputmode="numeric" placeholder="e.g. 4821 (add more with a space)" value="${esc(p.cards || "")}" autocomplete="off">
         <span class="hint">When a scanned receipt shows a card ending in these digits, this person is picked as the payer. Only the last 4 digits, never the full number.</span></div>
-      <label class="toggle"><span>Pays for<br><span class="hint">Leave at 1 for most people. Set to 2 if this person also covers someone not listed in the app, like a partner or a child. Their share of each split grows to match.</span></span><span class="stepper"><button type="button" id="wM">-</button><span id="wV" class="num" style="min-width:28px;text-align:center">${p.weight || 1}</span><button type="button" id="wP">+</button></span></label>
-      ${days.length ? `<div class="field"><span class="label">Days out (left off that day's expenses)</span><div class="chips">${days.map(d => `<button class="chip" aria-pressed="${p.away.includes(d)}" data-away="${d}">${esc(new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric" }))}</button>`).join("")}</div></div>` : ""}
+      ${isOrganizer() ? `<label class="toggle"><span>Pays for<br><span class="hint">Leave at 1 for most people. Set to 2 if this person also covers someone not listed in the app, like a partner or a child. Their share of each split grows to match.</span></span><span class="stepper"><button type="button" id="wM">-</button><span id="wV" class="num" style="min-width:28px;text-align:center">${p.weight || 1}</span><button type="button" id="wP">+</button></span></label>
+      ` : (+p.weight || 1) !== 1 || p.away?.length ? `<p class="hint" style="margin:0">Pays for ${+p.weight || 1}${p.away?.length ? ` · out ${p.away.length} day${p.away.length > 1 ? "s" : ""}` : ""}. Set by the organizer.</p>` : ""}
+      ${isOrganizer() && days.length ? `<div class="field"><span class="label">Days out (left off that day's expenses)</span><div class="chips">${days.map(d => `<button class="chip" aria-pressed="${p.away.includes(d)}" data-away="${d}">${esc(new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric" }))}</button>`).join("")}</div></div>` : ""}
       <button class="btn primary block" id="pSave">Save</button>
+      ${editing && isOrganizer() && p.uid && p.uid !== S.uid ? `<button class="btn ghost block" id="pFree">Free up this name</button><span class="hint">Use this if ${esc(dn(p))} deleted and re-added the app or got a new phone. They tap their name again to get back in. Nothing they entered is lost.</span>` : ""}
       ${editing && isOrganizer() && !S.expenses.some(e => payerMap(e)[p.id] || shareMap(e)[p.id]) ? `<button class="btn danger block" id="pDel">Remove from trip</button>` : ""}
     </div>`, {
     skin: skinOf(S.trip),
     onMount(sh) {
-      $("#wM", sh).onclick = () => { p.weight = Math.max(.5, (+p.weight || 1) - .5); $("#wV", sh).textContent = p.weight; };
-      $("#wP", sh).onclick = () => { p.weight = (+p.weight || 1) + .5; $("#wV", sh).textContent = p.weight; };
+      if ($("#wM", sh)) $("#wM", sh).onclick = () => { p.weight = Math.max(.5, (+p.weight || 1) - .5); $("#wV", sh).textContent = p.weight; };
+      if ($("#wP", sh)) $("#wP", sh).onclick = () => { p.weight = (+p.weight || 1) + .5; $("#wV", sh).textContent = p.weight; };
       sh.querySelectorAll("[data-hhpick]").forEach(b => b.onclick = () => { $("#pHH", sh).value = b.dataset.hhpick; sh.querySelectorAll("[data-hhpick]").forEach(x => x.setAttribute("aria-pressed", x === b)); });
       sh.querySelectorAll("[data-away]").forEach(b => b.onclick = () => { const d = b.dataset.away, i = p.away.indexOf(d); i >= 0 ? p.away.splice(i, 1) : p.away.push(d); b.setAttribute("aria-pressed", i < 0); });
       $("#pSave", sh).onclick = () => {
@@ -1533,6 +1616,7 @@ function openPersonForm(p, claimSelf) {
         write(S.store.set(`trips/${S.tripId}/people/${id}`, rec)); closeSheet(); toast(editing ? "Saved" : name + " added");
       };
       if ($("#pDel", sh)) $("#pDel", sh).onclick = () => { write(S.store.del(`trips/${S.tripId}/people/${p.id}`)); closeSheet(); };
+      if ($("#pFree", sh)) $("#pFree", sh).onclick = () => { write(S.store.update(`trips/${S.tripId}/people/${p.id}`, { uid: null })); closeSheet(); toast(`${dn(p)} can tap their name again to get back in.`, 4500); };
     }
   });
 }
@@ -1754,9 +1838,9 @@ async function exportXlsx() {
 
 /* ===================== v2: households, kitty, wheel, Wrapped ===================== */
 ACT["toggle-hh"] = () => write(S.store.update("trips/" + S.tripId, { byHousehold: !S.trip.byHousehold }));
-ACT["kitty-setup"] = () => openKittySetup();
+ACT["kitty-setup"] = () => isOrganizer() ? openKittySetup() : toast("Only the organizer can change the pot settings.");
 ACT["kitty-topup"] = () => openKittyTopup();
-ACT["kitty-spend"] = () => { const d = blankDraft(); d.paidBy = KITTY; openExpenseForm(d); };
+ACT["kitty-spend"] = () => { const d = blankDraft(true); d.paidBy = KITTY; openExpenseForm(d); };
 ACT.spin = () => openWheel();
 ACT.wrapped = () => openWrapped();
 
@@ -1915,7 +1999,7 @@ function openWheel() {
     if (S.settings.voice) setTimeout(() => say(pick([`This round is on ${u.label}!`, `Drinks are on ${u.label}.`, tool === "dice" ? `Snake eyes for ${u.label}. Pay up.` : `The wheel has chosen ${u.label}. No refunds.`])), 500);
     $("#wRes", sh).innerHTML = `<div class="two"><button class="btn ghost" id="wAgain">${tool === "dice" ? "Roll again" : "Spin again"}</button><button class="btn primary" id="wLog">Log the round</button></div>`;
     $("#wAgain", sh).onclick = () => tool === "dice" ? roll() : spin(.6, 1);
-    $("#wLog", sh).onclick = () => { closeSheet(); const d = blankDraft(); d.paidBy = u.lead; d.category = "Drinks"; d.description = "Round"; openExpenseForm(d); };
+    $("#wLog", sh).onclick = () => { closeSheet(); const d = blankDraft(true); d.paidBy = u.lead; d.category = "Drinks"; d.description = "Round"; openExpenseForm(d); };
   }
   /* ----- Dice: everyone rolls, lowest buys. The loser is drawn from the same mode weights as the wheel, then the dice are shown to match. ----- */
   const PIPS = { 1: [[50, 50]], 2: [[28, 28], [72, 72]], 3: [[26, 26], [50, 50], [74, 74]], 4: [[28, 28], [72, 28], [28, 72], [72, 72]], 5: [[27, 27], [73, 27], [50, 50], [27, 73], [73, 73]], 6: [[28, 24], [72, 24], [28, 50], [72, 50], [28, 76], [72, 76]] };
