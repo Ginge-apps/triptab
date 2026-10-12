@@ -1,5 +1,6 @@
 rules_version = '2';
-// Ted's Tab database rules, v4 (Oct 8, 2026).
+// Ted's Tab database rules, v5 (Oct 11, 2026).
+// v5: crew edit only their own crew entry; unclaimed names can be claimed but not edited by crew (organizer edits those).
 // v3: anyone in the trip can fix an expense; delete stays with the creator or organizer.
 // v4: trip settings are organizer-only (crew may only add stored exchange rates); crew edit only their own crew entry
 //     and names nobody has claimed, and can't change anyone's 'Pays for' or days out.
@@ -36,14 +37,16 @@ service cloud.firestore {
         // New people are unclaimed, or claimed by me; the organizer can also bring over a crew from a past trip
         allow create: if signedIn() && (request.resource.data.get('uid', null) == null || request.resource.data.uid == me() || isOrganizerAfter(t));
         // Organizer edits anyone, and can free up a claimed name (uid back to null) when someone reinstalls.
-        // Crew edit their own entry or a name nobody has claimed (and may claim it for themselves),
-        // but can't change 'Pays for' (weight) or days out, which move money.
-        allow update: if signedIn() && (isOrganizer(t) || (
-          (resource.data.get('uid', null) == null || resource.data.get('uid', null) == me())
-          && (request.resource.data.get('uid', null) == resource.data.get('uid', null)
-              || (resource.data.get('uid', null) == null && request.resource.data.get('uid', null) == me()))
-          && request.resource.data.get('weight', 1) == resource.data.get('weight', 1)
-          && request.resource.data.get('away', []) == resource.data.get('away', [])));
+        // v5: crew edit ONLY their own entry, and never 'Pays for' (weight) or days out, which move money.
+        // A name nobody has claimed can only be claimed (uid null -> me, nothing else changed); its details stay with the organizer.
+        allow update: if signedIn() && (isOrganizer(t)
+          || (resource.data.get('uid', null) == me()
+              && request.resource.data.get('uid', null) == me()
+              && request.resource.data.get('weight', 1) == resource.data.get('weight', 1)
+              && request.resource.data.get('away', []) == resource.data.get('away', []))
+          || (resource.data.get('uid', null) == null
+              && request.resource.data.get('uid', null) == me()
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid'])));
         allow delete: if signedIn() && isOrganizer(t);
       }
 

@@ -571,7 +571,7 @@ function isOrganizer() { return S.trip && (S.trip.createdBy === S.uid || S.store
 function canEditExp(e) { return !!S.trip; }  // anyone in the trip can fix an expense (D4, revised Oct 7)
 function canDeleteExp(e) { return isOrganizer() || e.createdBy === S.uid; }
 // Crew members edit themselves and names nobody has claimed yet; the organizer edits everyone (K15 T3)
-function canEditPerson(p) { return isOrganizer() || !p.uid || p.uid === S.uid; }
+function canEditPerson(p) { return isOrganizer() || (!!p.uid && p.uid === S.uid); }  // v2.4.7: once you are a name, you edit only that name
 function organizerPid() { return S.people.find(p => p.uid && p.uid === S.trip?.createdBy)?.id || null; }
 function organizerName() { const id = organizerPid(); return id ? short(id) : "the organizer"; }
 const isoToday = () => new Date().toISOString().slice(0, 10);
@@ -961,7 +961,7 @@ function renderCrew(bal) {
     <div class="two"><button class="btn primary" data-act="add-person">${ICON.plus} Add person</button><button class="btn ghost" data-act="paste-names">Paste names</button></div>
     ${"contacts" in navigator && "select" in (navigator.contacts || {}) ? `<button class="btn ghost block" data-act="contacts">Pick from contacts</button>` : ""}
     <button class="btn ghost block" data-act="invite">Invite with code or QR</button>
-    <p class="muted" style="font-size:12.5px;margin:0">Give a couple or family the same household name to settle them as one. Nicknames show everywhere in place of first names.${isOrganizer() ? "" : " You can edit your own details and anyone who hasn't joined yet. The organizer can edit everyone."}</p>
+    <p class="muted" style="font-size:12.5px;margin:0">Give a couple or family the same household name to settle them as one. Nicknames show everywhere in place of first names.${isOrganizer() ? "" : " You can edit only your own details. To fix someone else, ask them or the organizer."}</p>
   </div>`;
 }
 
@@ -1021,6 +1021,9 @@ function whoFirst(next) {
   });
 }
 function claimPerson(pid) {
+  const mine = S.people.find(p => p.uid && p.uid === S.uid);
+  if (mine && mine.id !== pid) { toast(`You are already ${dn(mine)} on this trip. Ask the organizer if that is wrong.`, 4500); return; }
+  if (personById(pid).uid && personById(pid).uid !== S.uid) { toast("Someone else already has that name. Ask the organizer to free it up.", 4500); return; }
   LS.set("me:" + S.tripId, pid);
   write(S.store.update(`trips/${S.tripId}/people/${pid}`, { uid: S.uid }));
   sfx("paid"); toast("Welcome aboard, " + short(pid) + ".");
@@ -1601,6 +1604,7 @@ function openPersonForm(p, claimSelf) {
       <button class="btn primary block" id="pSave">Save</button>
       ${editing && isOrganizer() && p.uid && p.uid !== S.uid ? `<button class="btn ghost block" id="pFree">Free up this name</button><span class="hint">Use this if ${esc(dn(p))} deleted and re-added the app or got a new phone. They tap their name again to get back in. Nothing they entered is lost.</span>` : ""}
       ${editing && isOrganizer() && !S.expenses.some(e => payerMap(e)[p.id] || shareMap(e)[p.id]) ? `<button class="btn danger block" id="pDel">Remove from trip</button>` : ""}
+      ${editing && isOrganizer() && S.people.length > 1 ? `<button class="btn ghost block" id="pMerge">Merge with another name</button><span class="hint">Use this when the same person ended up on the crew twice. Everything under both names is combined into one.</span>` : ""}
     </div>`, {
     skin: skinOf(S.trip),
     onMount(sh) {
@@ -1616,9 +1620,116 @@ function openPersonForm(p, claimSelf) {
         write(S.store.set(`trips/${S.tripId}/people/${id}`, rec)); closeSheet(); toast(editing ? "Saved" : name + " added");
       };
       if ($("#pDel", sh)) $("#pDel", sh).onclick = () => { write(S.store.del(`trips/${S.tripId}/people/${p.id}`)); closeSheet(); };
+      if ($("#pMerge", sh)) $("#pMerge", sh).onclick = () => { closeSheet(); openMerge(p.id); };
       if ($("#pFree", sh)) $("#pFree", sh).onclick = () => { write(S.store.update(`trips/${S.tripId}/people/${p.id}`, { uid: null })); closeSheet(); toast(`${dn(p)} can tap their name again to get back in.`, 4500); };
     }
   });
+}
+/* ---------- Merge two crew listings (organizer only, v2.4.7) ---------- */
+// Moves everything from "drop" onto "keep": who paid, splits, receipt items, payments, pot holder and settle-with person.
+// If both names were in the same split, the person counts once (the larger share weight is kept). Totals never change.
+function planMerge(dropId, keepId, data, uid, signer) {
+  const { trip, people, expenses, payments } = data, now = Date.now(), base = "trips/" + trip.id;
+  const ops = [], sum = { expenses: 0, payments: 0, doubled: 0, dropped: 0 };
+  const sw = id => id === dropId ? keepId : id;
+  for (const e of expenses) {
+    const touches = e.paidBy === dropId || (e.payers && dropId in e.payers) || (e.split && dropId in e.split) || (e.items || []).some(i => (i.pids || []).includes(dropId));
+    if (!touches) continue;
+    const { id, ...n } = structuredClone(e);
+    n.paidBy = sw(n.paidBy);
+    if (n.payers) {
+      const m = {}; for (const [k, a] of Object.entries(n.payers)) m[sw(k)] = round2((m[sw(k)] || 0) + (+a || 0));
+      n.payers = Object.keys(m).length > 1 ? m : null; if (!n.payers) n.paidBy = Object.keys(m)[0] || n.paidBy;
+    }
+    if (n.split && dropId in n.split) {
+      const w = +n.split[dropId] || 0; delete n.split[dropId];
+      if (keepId in n.split) { sum.doubled++; n.split[keepId] = Math.max(+n.split[keepId] || 0, w); } else n.split[keepId] = w;
+    }
+    if (n.items) n.items = n.items.map(i => ({ ...i, pids: [...new Set((i.pids || []).map(sw))] }));
+    Object.assign(n, { editedBy: uid, editedByName: signer || "", editedAt: now, mergedFrom: dropId });
+    ops.push({ op: "set", path: `${base}/expenses/${id}`, data: n }); sum.expenses++;
+  }
+  for (const pm of payments) {
+    if (pm.from !== dropId && pm.to !== dropId) continue;
+    const { id, ...n } = pm;
+    ops.push({ op: "del", path: `${base}/payments/${id}` });
+    n.from = sw(n.from); n.to = sw(n.to);
+    if (n.from === n.to) { sum.dropped++; continue; } // a payment between the two listings of the same person
+    // Payments can't be edited, so the organizer re-records it; who first recorded it is kept for the record.
+    ops.push({ op: "set", path: `${base}/payments/${rid(10)}`, data: { ...n, createdBy: uid, recordedBy: pm.recordedBy || pm.createdBy || null, mergedFrom: dropId } });
+    sum.payments++;
+  }
+  const drop = people.find(x => x.id === dropId) || {}, keep = people.find(x => x.id === keepId) || {};
+  const { id: _k, ...kp } = structuredClone(keep);
+  for (const f of ["nickname", "household", "venmo", "revolut", "zelle", "paypal", "other"]) if (!String(kp[f] || "").trim() && drop[f]) kp[f] = drop[f];
+  kp.cards = cleanCards([kp.cards, drop.cards].filter(Boolean).join(" "));
+  if (!kp.uid && drop.uid) kp.uid = drop.uid;
+  ops.push({ op: "set", path: `${base}/people/${keepId}`, data: kp });
+  ops.push({ op: "del", path: `${base}/people/${dropId}` });
+  const { id: _t, ...t } = structuredClone(trip); let tripChanged = false;
+  if (t.hub === dropId) { t.hub = keepId; tripChanged = true; }
+  if (t.kitty?.holder === dropId) { t.kitty.holder = keepId; tripChanged = true; }
+  if (tripChanged) ops.push({ op: "set", path: base, data: t });
+  return { ops, sum, keepDoc: kp };
+}
+function applyOpsToCopy(data, ops) { // what the trip looks like after the merge, for the preview
+  const out = { people: [...data.people], expenses: [...data.expenses], payments: [...data.payments] };
+  for (const o of ops) {
+    const parts = o.path.split("/"); if (parts.length < 4) continue;
+    const col = parts[2], id = parts[3]; if (!out[col]) continue;
+    out[col] = out[col].filter(x => x.id !== id);
+    if (o.op === "set") out[col].push({ id, ...o.data });
+  }
+  return out;
+}
+window.__merge = { planMerge, applyOpsToCopy };
+function openMerge(firstId) {
+  if (!isOrganizer()) return toast("Only the organizer can merge names.");
+  const cur = tripCur();
+  let other = null, keep = null;
+  const sh = openSheet(`${sheetHead("Merge names")}<div class="stack" id="mg"></div>`, { skin: skinOf(S.trip) });
+  const host = $("#mg", sh);
+  const counts = id => ({ e: S.expenses.filter(e => payerMap(e)[id] || shareMap(e)[id]).length, p: S.payments.filter(x => x.from === id || x.to === id).length });
+  const line = id => { const p = personById(id), c = counts(id); return `${esc(p.name)}${p.uid ? " (joined)" : ""} · ${c.e} expense${c.e === 1 ? "" : "s"}${c.p ? ` · ${c.p} payment${c.p === 1 ? "" : "s"}` : ""}`; };
+  function draw() {
+    const first = personById(firstId);
+    let html = `<p class="muted" style="margin:0">Pick the other listing for <b>${esc(nameOf(firstId))}</b>. Every expense, split and payment under both names ends up under one name, and the other name is removed.</p>
+      <div class="chips">${S.people.filter(p => p.id !== firstId).map(p => `<button class="chip" aria-pressed="${other === p.id}" data-mo="${p.id}"><span class="dot" style="background:${p.color || "#888"}">${esc(initials(p.name))}</span>${esc(p.name)}${p.nickname ? ` (${esc(p.nickname)})` : ""}</button>`).join("")}</div>`;
+    if (other) {
+      const a = personById(firstId), b = personById(other);
+      if (a.uid && b.uid && a.uid !== b.uid) html += `<div class="warn-box"><span>Both names were claimed on different phones. The phone on the name you drop will be asked "Which one are you?" and taps the kept name.</span></div>`;
+      html += `<span class="label">Keep which name</span><div class="stack" style="gap:8px">${[firstId, other].map(id => `<button class="chip" style="justify-content:flex-start;min-height:44px" aria-pressed="${keep === id}" data-mk="${id}">${line(id)}</button>`).join("")}</div>`;
+      const drop = keep === firstId ? other : firstId;
+      const data = { trip: { id: S.tripId, ...S.trip }, people: S.people, expenses: S.expenses, payments: S.payments };
+      const plan = planMerge(drop, keep, data, S.uid, myPid() ? short(myPid()) : "");
+      const before = computeBalances(S.people, S.expenses, S.payments), after = applyOpsToCopy(data, plan.ops);
+      const ab = computeBalances(after.people, after.expenses, after.payments);
+      const was = (before[drop]?.net || 0) + (before[keep]?.net || 0), now = ab[keep]?.net || 0;
+      html += `<div class="card stack" style="gap:6px;font-size:14px">
+        <div>Moves <b>${plan.sum.expenses}</b> expense${plan.sum.expenses === 1 ? "" : "s"}${plan.sum.payments ? ` and <b>${plan.sum.payments}</b> payment${plan.sum.payments === 1 ? "" : "s"}` : ""} from <b>${esc(personById(drop).name)}</b> to <b>${esc(personById(keep).name)}</b>.</div>
+        ${plan.sum.doubled ? `<div class="bad">${plan.sum.doubled} expense${plan.sum.doubled === 1 ? " had" : "s had"} both names in the split, so this person was charged twice. After the merge they count once, and the others' shares go up to cover it.</div>` : ""}
+        ${plan.sum.dropped ? `<div>${plan.sum.dropped} payment${plan.sum.dropped === 1 ? "" : "s"} between the two names will be removed.</div>` : ""}
+        <div class="num">Balance after merge: <b class="${now > .004 ? "good" : now < -.004 ? "bad" : ""}">${sfmt(now, cur)}</b>${Math.abs(now - was) > .004 ? ` <span class="muted">(the two names added up to ${sfmt(was, cur)})</span>` : ""}</div>
+        <div class="muted" style="font-size:12.5px">Payment details and card digits from both names are kept. Trip totals do not change.</div></div>
+        <button class="btn primary block" id="mGo">Merge into ${esc(personById(keep).name)}</button>`;
+    }
+    host.innerHTML = html;
+    host.querySelectorAll("[data-mo]").forEach(b => b.onclick = () => { other = b.dataset.mo; const a = personById(firstId), o = personById(other); keep = o.uid && !a.uid ? other : a.uid && !o.uid ? firstId : other; draw(); });
+    host.querySelectorAll("[data-mk]").forEach(b => b.onclick = () => { keep = b.dataset.mk; draw(); });
+    if ($("#mGo", host)) $("#mGo", host).onclick = () => {
+      const drop = keep === firstId ? other : firstId, keepName = personById(keep).name, dropName = personById(drop).name;
+      confirmBox(`Merge into ${keepName}?`, `${dropName} is removed and everything moves to ${keepName}. Export a backup first if you have not today. This can't be undone in the app.`, "Merge", async () => {
+        const data = { trip: { id: S.tripId, ...S.trip }, people: S.people, expenses: S.expenses, payments: S.payments };
+        const plan = planMerge(drop, keep, data, S.uid, myPid() ? short(myPid()) : "");
+        try {
+          await S.store.batch(plan.ops);
+          if (LS.get("me:" + S.tripId, null) === drop) LS.set("me:" + S.tripId, keep);
+          closeSheet(); sfx("paid"); toast(`Merged. ${dropName} is now part of ${keepName}.`, 4500);
+        } catch (e) { console.error(e); toast("Merge did not finish. Check your connection and try again.", 5000); }
+      });
+    };
+  }
+  draw();
 }
 function openPasteNames() {
   openSheet(`${sheetHead("Paste names")}<div class="stack"><p class="muted" style="margin:0">Paste names from a group text, one per line or separated by commas.</p><textarea class="input" id="pn" placeholder="Amy, Scott, Jim, Dane"></textarea><button class="btn primary block" id="pnGo">Add to crew</button></div>`, {
