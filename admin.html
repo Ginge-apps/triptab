@@ -41,6 +41,15 @@
   #gate { max-width:520px; margin:60px auto; text-align:center; }
   .err { color:var(--bad); }
   details summary { cursor:pointer; }
+  tr.flagged td { background:rgba(240,179,90,.14); }
+  tr.flagged.bad td { background:rgba(255,138,128,.16); }
+  tr.flash td { outline:2px solid var(--acc); outline-offset:-2px; }
+  .issue { border:1px solid var(--line); border-left:4px solid var(--warn); border-radius:8px; padding:10px 14px; margin:0 0 12px; background:var(--card); }
+  .issue.lv-bad { border-left-color:var(--bad); } .issue.lv-info { border-left-color:var(--mute); }
+  .issue h3 { margin:0 0 4px; font-size:15px; }
+  .issue ol { margin:6px 0 8px 20px; padding:0; }
+  .issue li { margin:2px 0; }
+  .issue .exp { margin:3px 0; }
   select, input[type=search] { font:inherit; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
 </style>
 </head>
@@ -58,7 +67,7 @@
 <script type="module">
 /* Ted's Tab Help Desk. Read-only: this page never writes to the database.
    Sign-in is Google, on its own Firebase app instance named "helpdesk", so it never touches the anonymous sign-in the
-   Ted's Tab app uses on the same browser. Access is decided by the database rules (v5), not by this page. */
+   Ted's Tab app uses on the same browser. Access is decided by the database rules (v6), not by this page. */
 const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -133,35 +142,42 @@ function analyse(id, t, people, expenses, payments) {
   const nm = pid => pid === "KITTY" ? (t.kitty?.name || "Kitty") : pById[pid] ? (pById[pid].nickname || firstName(pById[pid].name)) : "Removed person";
   const bal = M.computeBalances(people, expenses, payments);
   const sum = Object.values(bal).reduce((a, v) => a + v.net, 0);
-  const flags = []; // {level, text}
-  const add = (level, text) => flags.push({ level, text });
-  if (Math.abs(sum) > 0.01) add("bad", `Balances add to ${sum.toFixed(2)}, not zero`);
-  const ghost = new Set();
+  const flags = []; // {level, key, text, ids, why, fix}
+  const add = (level, key, text, ids, why, fix) => flags.push({ level, key, text, ids: ids || [], why: why || "", fix: fix || [] });
+  const IN_APP = "Open the expense in Ted's Tab (Expenses tab, tap it, Edit). Only the person who entered it or the trip organizer can change it.";
+  if (Math.abs(sum) > 0.01) add("bad", "sum", `Balances add to ${sum.toFixed(2)}, not zero`, [], "Every dollar paid should be owed by someone, so balances must total zero. When they do not, an expense has a payer or split that does not add up.",
+    ["Look for other flags on this trip first; one of them is usually the cause.", "If there are none, ask Claude to check the expenses (use the Copy button on this issue)."]);
+  const ghost = new Set(), ghostIds = [];
   for (const e of expenses) {
     const used = [...Object.keys(M.payerMap(e)), ...Object.keys(e.split || {}).filter(k => +e.split[k] > 0)];
-    for (const u of used) if (u !== "KITTY" && !pById[u]) ghost.add(u);
+    let hit = false; for (const u of used) if (u !== "KITTY" && !pById[u]) { ghost.add(u); hit = true; }
+    if (hit) ghostIds.push(e.id);
   }
-  if (ghost.size) add("bad", `${ghost.size} expense reference(s) point to a person who is no longer in the trip`);
+  if (ghost.size) add("bad", "ghost", `${ghostIds.length} expense(s) point to a person who is no longer in the trip`, ghostIds, "The payer or someone in the split was removed from the crew, so their share shows as 'Removed person'.",
+    [IN_APP, "Pick the right payer and split, then save.", "Or re-add the missing person in the Crew tab first if they were removed by mistake."]);
   const noPayer = expenses.filter(e => !e.paidBy && !(e.payers && Object.keys(e.payers).length));
-  if (noPayer.length) add("bad", `${noPayer.length} expense(s) with no payer`);
+  if (noPayer.length) add("bad", "nopayer", `${noPayer.length} expense(s) with no payer`, noPayer.map(e => e.id), "Without a payer nobody is credited for the money spent.", [IN_APP, "Choose who paid and save."]);
   const noSplit = expenses.filter(e => !Object.keys(e.split || {}).some(k => +e.split[k] > 0) && !(e.mode === "items" && e.items?.length));
-  if (noSplit.length) add("bad", `${noSplit.length} expense(s) with nobody in the split`);
+  if (noSplit.length) add("bad", "nosplit", `${noSplit.length} expense(s) with nobody in the split`, noSplit.map(e => e.id), "Nobody is charged for it, so it shows as paid but never owed.", [IN_APP, "Pick who shares it (All is fine) and save."]);
   const noRate = expenses.filter(e => e.currency && e.currency !== (t.currency || "USD") && !(+e.rate > 0));
-  if (noRate.length) add("bad", `${noRate.length} foreign-currency expense(s) with no exchange rate`);
+  if (noRate.length) add("bad", "norate", `${noRate.length} foreign-currency expense(s) with no exchange rate`, noRate.map(e => e.id), "Without a rate the amount counts as zero in the trip currency.", [IN_APP, "Type the exchange rate, or switch the currency to the trip currency and enter what the card billed, then save."]);
   const today = todayISO();
   const future = expenses.filter(e => e.date && e.date > today);
-  if (future.length) add("warn", `${future.length} expense(s) dated in the future`);
-  if (t.start && t.end) {
+  if (future.length) add("warn", "future", `${future.length} expense(s) dated in the future`, future.map(e => e.id), "Usually a typo in the date, or a phone with the wrong date. It does not break the math.", [IN_APP, "Correct the date and save."]);
+  if (t.start && t.end && t.end < t.start) add("warn", "tripdates", `Trip end date (${t.end}) is before the start date (${t.start})`, [], "A typo in the trip dates. Day-by-day charts and the days-out picker use these dates.", ["Organizer: open the trip, tap the gear (Trip settings), fix Start and End, Save."]);
+  if (t.start && t.end && t.end >= t.start) {
     const out = expenses.filter(e => e.date && (e.date < t.start || e.date > t.end) && !(e.date > today));
-    if (out.length) add("warn", `${out.length} expense(s) dated outside the trip window ${t.start} to ${t.end}`);
+    if (out.length) add("warn", "outside", `${out.length} expense(s) dated outside the trip window ${t.start} to ${t.end}`, out.map(e => e.id), "Either the expense date is wrong or the trip dates are too narrow. It does not break the math.", ["If the expense date is wrong: " + IN_APP, "If the trip dates are too narrow (for example a pre-trip deposit): organizer opens Trip settings and widens Start or End. Or leave it if the date is correct."]);
   }
-  const seen = new Map(); let dups = 0;
-  for (const e of expenses) { const k = [e.paidBy, +e.amount, e.date, e.currency].join("|"); if (seen.has(k)) dups++; else seen.set(k, 1); }
-  if (dups) add("warn", `${dups} possible duplicate expense(s) (same payer, amount, date)`);
+  const groups = new Map();
+  for (const e of expenses) { const k = [e.paidBy, +e.amount, e.date, e.currency].join("|"); (groups.get(k) || groups.set(k, []).get(k)).push(e); }
+  const dupSets = [...groups.values()].filter(g => g.length > 1);
+  if (dupSets.length) add("warn", "dup", `${dupSets.length} possible duplicate expense(s) (same payer, amount, date)`, dupSets.flat().map(e => e.id), "Two or more expenses have the same payer, amount, date and currency. It may be a double entry, or two real identical purchases (two rounds of the same price).",
+    ["Compare the highlighted expenses below: description, who entered each, and when. A receipt on only one of them usually marks the original.", "If it is a double entry: the person who entered the extra one, or the organizer, opens it in Ted's Tab and taps Delete. Delete only one of the pair.", "If both are real: do nothing. Nothing here needs clearing."]);
   const unclaimed = people.filter(p => !p.uid);
-  if (unclaimed.length) add("info", `${unclaimed.length} name(s) not claimed yet: ${unclaimed.map(p => nm(p.id)).join(", ")}`);
+  if (unclaimed.length) add("info", "unclaimed", `${unclaimed.length} name(s) not claimed yet: ${unclaimed.map(p => nm(p.id)).join(", ")}`, [], "Nobody has tapped these names on their own phone yet. Expenses still work; they just cannot be entered 'as me' by that person.", ["Ask the person to open the trip in Ted's Tab and tap their name under 'Which one are you?'.", "If they never installed it, send the trip code from the Invite button."]);
   const noPay = people.filter(p => !(p.venmo || p.revolut || p.zelle || p.paypal || p.other));
-  if (noPay.length && payments.length) add("info", `${noPay.length} person(s) with no payment details`);
+  if (noPay.length && payments.length) add("info", "nopay", `${noPay.length} person(s) with no payment details`, [], "Settle-up cannot show a pay button for them.", ["Each person opens Crew, taps their name, and adds Venmo, Zelle, PayPal or Revolut."]);
   const times = [t.createdAt, ...expenses.flatMap(e => [e.createdAt, e.editedAt, e.updatedAt]), ...payments.map(p => p.createdAt)].filter(Boolean);
   const last = times.length ? Math.max(...times) : 0;
   const spend = expenses.reduce((a, e) => a + M.expTotal(e), 0);
@@ -271,7 +287,7 @@ function render() {
   $("#flt").value = st.filter;
   $("#flt").onchange = e => { st.filter = e.target.value; render(); };
   $("#q").oninput = e => { st.q = e.target.value; const pos = e.target.selectionStart; render(); const q = $("#q"); q.focus(); q.setSelectionRange(pos, pos); };
-  app.querySelectorAll("tr.click").forEach(r => r.onclick = () => { st.view = "trip"; st.code = r.dataset.code; render(); scrollTo(0, 0); });
+  app.querySelectorAll("tr.click").forEach(r => r.onclick = () => { st.view = "trip"; st.code = r.dataset.code; render(); const iss = $("#issues"); iss ? iss.scrollIntoView() : scrollTo(0, 0); });
 }
 
 function renderTrip() {
@@ -288,6 +304,15 @@ function renderTrip() {
     <p style="margin:10px 0 0">${a.flags.map(f => `<span class="pill ${f.level === "info" ? "" : f.level}">${esc(f.text)}</span>`).join("") || '<span class="pill good">No flags</span>'}</p>
     <p class="small" style="margin:8px 0 0">Balances add up to <b class="${Math.abs(a.sum) > 0.01 ? "bad" : "good"}">${a.sum.toFixed(2)}</b>.</p>
   </div>
+  ${a.flags.length ? `<div class="card" id="issues"><h2>Issues to look at (${a.flags.length})</h2>
+    <p class="muted small" style="margin:0 0 10px">This page is read-only. Each issue says what it means and how to fix it in the app. To have Claude walk you through it, press Copy for Claude and paste it into the Slush App chat.</p>
+    ${a.flags.map((f, i) => `<div class="issue lv-${f.level}">
+      <h3>${esc(f.text)}</h3>
+      ${f.why ? `<div class="muted small">${esc(f.why)}</div>` : ""}
+      ${f.ids.length ? `<div class="small" style="margin-top:6px"><b>Expenses involved</b> (tap to jump to the row)</div>${f.ids.map(id => { const e = expenses.find(x => x.id === id); return e ? `<div class="exp small"><button class="link" data-goto="${esc(id)}">${esc(e.description || "Expense")}</button> &middot; ${esc(money(e.amount, e.currency || cur))} &middot; ${esc(e.date || "no date")} &middot; paid by ${esc(nm(e.paidBy))} &middot; entered by ${esc(e.createdByName || "unknown")} ${esc(when(e.createdAt))}${e.hasReceipt ? " &middot; has receipt" : ""}</div>` : ""; }).join("")}` : ""}
+      ${f.fix.length ? `<div class="small" style="margin-top:6px"><b>How to fix</b></div><ol class="small">${f.fix.map(x => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}
+      <button data-copy="${i}">Copy for Claude</button> <span class="muted small" data-copied="${i}"></span>
+    </div>`).join("")}</div>` : ""}
   <div class="card"><h2>People and balances</h2><div class="scroll"><table>
     <thead><tr><th>Name</th><th>Joined</th><th>Household</th><th class="num">Pays for</th><th>Days out</th><th>Payment details</th><th class="num">Paid</th><th class="num">Share</th><th class="num">Sent</th><th class="num">Received</th><th class="num">Balance</th></tr></thead>
     <tbody>${people.map(p => { const b = bal[p.id] || { paid: 0, share: 0, sent: 0, recv: 0, net: 0 };
@@ -304,7 +329,8 @@ function renderTrip() {
     <tbody>${exps.map(e => { const M = a.M; const sp = Object.keys(e.split || {}).filter(k => +e.split[k] > 0);
       const flat = e.currency && e.currency !== cur ? ` <span class="muted small">(${esc(money(M.expTotal(e), cur))} at ${esc(e.rate || "no rate")})</span>` : "";
       const payers = e.payers && Object.keys(e.payers).length ? Object.entries(e.payers).map(([p, v]) => nm(p) + " " + money(v, e.currency)).join(", ") : nm(e.paidBy);
-      return `<tr><td class="small">${esc(when(e.createdAt))}</td><td>${esc(e.description || "")}${e.refund ? ' <span class="pill warn">refund</span>' : ""}${e.hasReceipt ? ' <span class="pill">receipt</span>' : ""}${e.source && e.source !== "manual" ? ` <span class="pill">${esc(e.source)}</span>` : ""}<br><span class="muted small">${esc(e.category || "")}${e.note ? " &middot; " + esc(e.note) : ""}</span></td>
+      const fl = a.flags.filter(f => f.ids.includes(e.id)); const worst = fl.some(f => f.level === "bad") ? "bad" : fl.length ? "warn" : "";
+      return `<tr data-exp="${esc(e.id)}" class="${fl.length ? "flagged " + worst : ""}"><td class="small">${esc(when(e.createdAt))}${fl.length ? "<br>" + fl.map(f => `<span class="pill ${f.level}">${esc(f.key)}</span>`).join("") : ""}</td><td>${esc(e.description || "")}${e.refund ? ' <span class="pill warn">refund</span>' : ""}${e.hasReceipt ? ' <span class="pill">receipt</span>' : ""}${e.source && e.source !== "manual" ? ` <span class="pill">${esc(e.source)}</span>` : ""}<br><span class="muted small">${esc(e.category || "")}${e.note ? " &middot; " + esc(e.note) : ""}</span></td>
       <td class="small">${esc(e.date || "")}</td><td class="num">${esc(money(e.amount, e.currency || cur))}${flat}</td><td>${esc(payers)}</td>
       <td class="small">${sp.length === people.length ? "Everyone" : esc(sp.map(nm).join(", ") || "nobody")}${e.mode === "items" ? " (by item)" : ""}</td>
       <td class="small">${esc(e.createdByName || "")}</td><td class="small">${e.editedAt ? esc((e.editedByName || "someone") + ", " + when(e.editedAt)) : ""}</td></tr>`; }).join("") || `<tr><td colspan="8" class="muted">No expenses yet.</td></tr>`}</tbody></table></div></div>
@@ -313,6 +339,18 @@ function renderTrip() {
     <tbody>${payments.slice().sort((x, y) => (y.createdAt || 0) - (x.createdAt || 0)).map(p => `<tr><td class="small">${esc(when(p.createdAt))}</td><td>${esc(nm(p.from))}</td><td>${esc(nm(p.to))}</td><td class="num">${esc(money(p.amount, cur))}</td><td class="small muted">${esc(p.kind || "")}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">None.</td></tr>`}</tbody></table></div></div>
   ${Object.keys(hh).length ? `<div class="card"><h2>Households</h2>${Object.entries(hh).map(([k, v]) => `<div>${esc(k)}: ${esc(v.join(", "))}</div>`).join("")}</div>` : ""}`;
   $("#back").onclick = () => { st.view = "list"; render(); scrollTo(0, 0); };
+  app.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => {
+    const row = [...app.querySelectorAll("tr[data-exp]")].find(r => r.dataset.exp === b.dataset.goto); if (!row) return;
+    row.scrollIntoView({ block: "center", behavior: "smooth" }); row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 2500);
+  });
+  app.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
+    const f = a.flags[+b.dataset.copy], note = app.querySelector(`[data-copied="${b.dataset.copy}"]`);
+    const lines = f.ids.map(id => { const e = expenses.find(x => x.id === id); if (!e) return ""; const sp = Object.keys(e.split || {}).filter(k => +e.split[k] > 0).map(nm).join(", ") || "nobody";
+      return `- id ${e.id}: ${e.description || "Expense"}, ${money(e.amount, e.currency || cur)}, date ${e.date || "none"}, paid by ${nm(e.paidBy)}, split between ${sp}, entered by ${e.createdByName || "unknown"} at ${when(e.createdAt)}${e.hasReceipt ? ", has receipt" : ""}`; }).filter(Boolean);
+    const text = `Help Desk issue in Ted's Tab.\nTrip: ${t.name || "(no name)"}, code ${a.id}, currency ${cur}, ${t.start || "?"} to ${t.end || "?"}.\nIssue: ${f.text}\n${lines.length ? "Expenses involved:\n" + lines.join("\n") + "\n" : ""}What I need: explain what most likely happened and give me the exact steps to fix it. The Help Desk is read-only, so the fix is made in the app by the organizer or the person who entered it, or in the Firebase Console (see K23). Tell me which.`;
+    try { await navigator.clipboard.writeText(text); } catch { const ta = document.createElement("textarea"); ta.value = text; document.body.append(ta); ta.select(); try { document.execCommand("copy"); } catch {} ta.remove(); }
+    if (note) note.textContent = "Copied. Paste it into the Slush App chat.";
+  });
 }
 
 /* ---------- start ---------- */
