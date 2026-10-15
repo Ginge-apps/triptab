@@ -1,5 +1,6 @@
 rules_version = '2';
-// Ted's Tab database rules, v5 (Oct 11, 2026).
+// Ted's Tab database rules, v6 (Oct 15, 2026).
+// v6: adds one help-desk admin (a verified Google sign-in as ted.brownn@gmail.com) who may list all trips, for the read-only Help Desk page (admin.html). Nothing else changes from v5.
 // v5: crew edit only their own crew entry; unclaimed names can be claimed but not edited by crew (organizer edits those).
 // v3: anyone in the trip can fix an expense; delete stays with the creator or organizer.
 // v4: trip settings are organizer-only (crew may only add stored exchange rates); crew edit only their own crew entry
@@ -22,10 +23,13 @@ service cloud.firestore {
     function addedByMe() { return resource.data.get('createdBy', '') == me(); }
     function sameCreator() { return request.resource.data.get('createdBy', '') == resource.data.get('createdBy', ''); }
     function okAmount(a) { return a is number && a >= 0 && a < 10000000; }
+    // Help-desk admin: a verified Google sign-in with this exact email. Anonymous app sign-ins have no email, so they can never match.
+    function isAdmin() { return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com'
+      && request.auth.token.email_verified == true && request.auth.token.email == 'ted.brownn@gmail.com'; }
 
     match /trips/{t} {
       allow get: if signedIn();
-      allow list: if false;  // trip codes cannot be browsed
+      allow list: if isAdmin();  // trip codes cannot be browsed by the crew; only the help-desk admin can list trips
       allow create: if signedIn() && request.resource.data.createdBy == me();
       // Trip settings belong to the organizer. The app saves exchange rates it looked up, so crew may touch only that field.
       allow update: if signedIn() && sameCreator() && (resource.data.createdBy == me()

@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Ted's Tab Help Desk</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --ink:#1d2330; --mute:#6b7280; --line:#e3e1db; --acc:#0f5c8a; --good:#1b7a43; --bad:#b3261e; --warn:#a8650b; --chip:#eef2f6; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171c; --card:#1d2128; --ink:#e8eaee; --mute:#9aa3b0; --line:#2c323b; --acc:#6cb4e4; --good:#5fcf8b; --bad:#ff8a80; --warn:#f0b35a; --chip:#262c35; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 Calibri, Arial, sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding:14px 20px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  h1 { font-size:19px; margin:0; }
+  h2 { font-size:16px; margin:0 0 8px; }
+  main { max-width:1200px; margin:0 auto; padding:18px 20px 60px; }
+  .muted { color:var(--mute); }
+  .small { font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:16px; }
+  button { font:inherit; border:1px solid var(--line); background:var(--chip); color:var(--ink); border-radius:8px; padding:7px 12px; cursor:pointer; }
+  button.primary { background:var(--acc); color:#fff; border-color:var(--acc); }
+  button:disabled { opacity:.5; cursor:default; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:12.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--mute); font-weight:600; white-space:nowrap; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  tr.click { cursor:pointer; }
+  tr.click:hover td { background:var(--chip); }
+  .scroll { overflow-x:auto; }
+  .pill { display:inline-block; padding:1px 9px; border-radius:999px; font-size:12.5px; background:var(--chip); margin:1px 4px 1px 0; white-space:nowrap; }
+  .pill.bad { color:var(--bad); border:1px solid var(--bad); background:transparent; }
+  .pill.warn { color:var(--warn); border:1px solid var(--warn); background:transparent; }
+  .pill.good { color:var(--good); border:1px solid var(--good); background:transparent; }
+  .good { color:var(--good); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .grow { flex:1; }
+  .kpis { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 16px; min-width:130px; }
+  .kpi b { display:block; font-size:22px; }
+  a.link, .link { color:var(--acc); cursor:pointer; text-decoration:underline; background:none; border:0; padding:0; font:inherit; }
+  #gate { max-width:520px; margin:60px auto; text-align:center; }
+  .err { color:var(--bad); }
+  details summary { cursor:pointer; }
+  select, input[type=search] { font:inherit; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ted's Tab Help Desk <span class="muted small">read-only</span></h1>
+  <div class="row">
+    <span id="who" class="muted small"></span>
+    <button id="btnRefresh" hidden>Refresh</button>
+    <button id="btnOut" hidden>Sign out</button>
+  </div>
+</header>
+<main id="app"></main>
+
+<script type="module">
+/* Ted's Tab Help Desk. Read-only: this page never writes to the database.
+   Sign-in is Google, on its own Firebase app instance named "helpdesk", so it never touches the anonymous sign-in the
+   Ted's Tab app uses on the same browser. Access is decided by the database rules (v5), not by this page. */
+const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const app = $("#app");
+
+/* ---------- config ---------- */
+async function loadConfig() {
+  if (window.TRIPTAB_CONFIG) return window.TRIPTAB_CONFIG;
+  await new Promise((ok, no) => { const s = document.createElement("script"); s.src = "config.js"; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+  return window.TRIPTAB_CONFIG;
+}
+
+/* ---------- money math: copied from index.html (v2.4.6). Keep in step with it. ---------- */
+const MATH = (tripCur) => {
+  const rateOf = e => e.currency && e.currency !== tripCur ? (+e.rate || 0) : 1;
+  const sign = e => e.refund ? -1 : 1;
+  const expTotal = e => sign(e) * (+e.amount || 0) * rateOf(e);
+  const payerMap = e => {
+    const r = rateOf(e) * sign(e), out = {};
+    if (e.payers && Object.keys(e.payers).length) for (const [p, a] of Object.entries(e.payers)) out[p] = (+a || 0) * r;
+    else if (e.paidBy) out[e.paidBy] = expTotal(e);
+    return out;
+  };
+  const shareMap = e => {
+    const total = expTotal(e), split = e.split || {}, out = {};
+    const parts = Object.keys(split).filter(k => +split[k] > 0);
+    if (e.mode === "items" && e.items?.length) {
+      const base = {};
+      for (const it of e.items) {
+        const ps = it.pids?.length ? it.pids : parts; if (!ps.length) continue;
+        for (const p of ps) base[p] = (base[p] || 0) + (+it.amount || 0) / ps.length;
+      }
+      const bt = Object.values(base).reduce((a, b) => a + b, 0);
+      for (const p in base) out[p] = bt ? total * base[p] / bt : 0;
+      return out;
+    }
+    const W = parts.reduce((s, p) => s + +split[p], 0);
+    for (const p of parts) out[p] = W ? total * +split[p] / W : 0;
+    return out;
+  };
+  const computeBalances = (people, expenses, payments) => {
+    const b = {}; for (const p of people) b[p.id] = { paid: 0, share: 0, sent: 0, recv: 0, net: 0 };
+    const g = id => (b[id] ||= { paid: 0, share: 0, sent: 0, recv: 0, net: 0 });
+    for (const e of expenses) {
+      for (const [p, a] of Object.entries(payerMap(e))) g(p).paid += a;
+      for (const [p, a] of Object.entries(shareMap(e))) g(p).share += a;
+    }
+    for (const pm of payments) { g(pm.from).sent += +pm.amount || 0; g(pm.to).recv += +pm.amount || 0; }
+    for (const k in b) b[k].net = b[k].paid - b[k].share + b[k].sent - b[k].recv;
+    return b;
+  };
+  return { rateOf, expTotal, payerMap, shareMap, computeBalances };
+};
+
+/* ---------- formatting ---------- */
+const money = (v, cur) => { try { return new Intl.NumberFormat(undefined, { style: "currency", currency: cur || "USD" }).format(v || 0); } catch { return (v || 0).toFixed(2) + " " + (cur || ""); } };
+const when = ms => ms ? new Date(ms).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+const ago = ms => {
+  if (!ms) return "never";
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 90) return "just now"; if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago"; return Math.round(s / 86400) + " d ago";
+};
+const firstName = n => String(n || "").trim().split(/\s+/)[0] || "?";
+const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const todayISO = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+
+/* ---------- analysis of one trip ---------- */
+function analyse(id, t, people, expenses, payments) {
+  const M = MATH(t.currency || "USD");
+  const pById = Object.fromEntries(people.map(p => [p.id, p]));
+  const nm = pid => pid === "KITTY" ? (t.kitty?.name || "Kitty") : pById[pid] ? (pById[pid].nickname || firstName(pById[pid].name)) : "Removed person";
+  const bal = M.computeBalances(people, expenses, payments);
+  const sum = Object.values(bal).reduce((a, v) => a + v.net, 0);
+  const flags = []; // {level, text}
+  const add = (level, text) => flags.push({ level, text });
+  if (Math.abs(sum) > 0.01) add("bad", `Balances add to ${sum.toFixed(2)}, not zero`);
+  const ghost = new Set();
+  for (const e of expenses) {
+    const used = [...Object.keys(M.payerMap(e)), ...Object.keys(e.split || {}).filter(k => +e.split[k] > 0)];
+    for (const u of used) if (u !== "KITTY" && !pById[u]) ghost.add(u);
+  }
+  if (ghost.size) add("bad", `${ghost.size} expense reference(s) point to a person who is no longer in the trip`);
+  const noPayer = expenses.filter(e => !e.paidBy && !(e.payers && Object.keys(e.payers).length));
+  if (noPayer.length) add("bad", `${noPayer.length} expense(s) with no payer`);
+  const noSplit = expenses.filter(e => !Object.keys(e.split || {}).some(k => +e.split[k] > 0) && !(e.mode === "items" && e.items?.length));
+  if (noSplit.length) add("bad", `${noSplit.length} expense(s) with nobody in the split`);
+  const noRate = expenses.filter(e => e.currency && e.currency !== (t.currency || "USD") && !(+e.rate > 0));
+  if (noRate.length) add("bad", `${noRate.length} foreign-currency expense(s) with no exchange rate`);
+  const today = todayISO();
+  const future = expenses.filter(e => e.date && e.date > today);
+  if (future.length) add("warn", `${future.length} expense(s) dated in the future`);
+  if (t.start && t.end) {
+    const out = expenses.filter(e => e.date && (e.date < t.start || e.date > t.end) && !(e.date > today));
+    if (out.length) add("warn", `${out.length} expense(s) dated outside the trip window ${t.start} to ${t.end}`);
+  }
+  const seen = new Map(); let dups = 0;
+  for (const e of expenses) { const k = [e.paidBy, +e.amount, e.date, e.currency].join("|"); if (seen.has(k)) dups++; else seen.set(k, 1); }
+  if (dups) add("warn", `${dups} possible duplicate expense(s) (same payer, amount, date)`);
+  const unclaimed = people.filter(p => !p.uid);
+  if (unclaimed.length) add("info", `${unclaimed.length} name(s) not claimed yet: ${unclaimed.map(p => nm(p.id)).join(", ")}`);
+  const noPay = people.filter(p => !(p.venmo || p.revolut || p.zelle || p.paypal || p.other));
+  if (noPay.length && payments.length) add("info", `${noPay.length} person(s) with no payment details`);
+  const times = [t.createdAt, ...expenses.flatMap(e => [e.createdAt, e.editedAt, e.updatedAt]), ...payments.map(p => p.createdAt)].filter(Boolean);
+  const last = times.length ? Math.max(...times) : 0;
+  const spend = expenses.reduce((a, e) => a + M.expTotal(e), 0);
+  const flagCount = flags.filter(f => f.level !== "info").length;
+  return { id, t, people, expenses, payments, bal, sum, flags, flagCount, last, spend, nm, claimed: people.length - unclaimed.length, M };
+}
+
+/* ---------- activity feed ---------- */
+function activity(trips) {
+  const ev = [];
+  for (const a of trips) {
+    const nmOf = (pid) => a.nm(pid);
+    for (const e of a.expenses) {
+      if (e.createdAt) ev.push({ at: e.createdAt, trip: a.t.name || a.id, code: a.id, text: `${e.createdByName || "Someone"} added ${e.description || "an expense"}`, detail: `${money(e.amount, e.currency)} paid by ${nmOf(e.paidBy)}` });
+      if (e.editedAt) ev.push({ at: e.editedAt, trip: a.t.name || a.id, code: a.id, text: `${e.editedByName || "Someone"} edited ${e.description || "an expense"}`, detail: `${money(e.amount, e.currency)}` });
+    }
+    for (const p of a.payments) if (p.createdAt) ev.push({ at: p.createdAt, trip: a.t.name || a.id, code: a.id, text: `${nmOf(p.from)} marked paid to ${nmOf(p.to)}`, detail: money(p.amount, a.t.currency) });
+  }
+  return ev.sort((x, y) => y.at - x.at);
+}
+
+/* ---------- state + rendering ---------- */
+const st = { db: null, auth: null, user: null, trips: [], loadedAt: 0, view: "list", code: null, filter: "all", q: "", cfg: null, mods: null };
+
+function gate(msg, err) {
+  $("#btnRefresh").hidden = true; $("#btnOut").hidden = !st.user; $("#who").textContent = st.user?.email || "";
+  app.innerHTML = `<div id="gate" class="card"><h2>Ted's Tab Help Desk</h2>
+    <p class="muted">Read-only view of every trip. Sign in with the Google account that is on the allow list in the database rules.</p>
+    ${err ? `<p class="err">${esc(err)}</p>` : ""}
+    ${msg ? `<p>${esc(msg)}</p>` : ""}
+    <p><button class="primary" id="btnIn">Sign in with Google</button></p></div>`;
+  $("#btnIn").onclick = signIn;
+}
+
+async function signIn() {
+  try { await st.mods.A.signInWithPopup(st.auth, new st.mods.A.GoogleAuthProvider()); }
+  catch (e) { gate("", "Sign-in did not finish: " + (e.code || e.message)); }
+}
+
+async function loadAll() {
+  app.innerHTML = `<div class="card muted">Loading every trip...</div>`;
+  const { F } = st.mods;
+  try {
+    const snap = await F.getDocs(F.collection(st.db, "trips"));
+    const out = [];
+    for (const d of snap.docs) {
+      const base = F.collection(st.db, "trips", d.id);
+      const [pe, ex, pa] = await Promise.all(["people", "expenses", "payments"].map(c => F.getDocs(F.collection(st.db, "trips", d.id, c))));
+      const rows = s => s.docs.map(x => ({ id: x.id, ...x.data() }));
+      out.push(analyse(d.id, d.data(), rows(pe).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), rows(ex), rows(pa)));
+    }
+    st.trips = out.sort((a, b) => b.last - a.last);
+    st.loadedAt = Date.now();
+    render();
+  } catch (e) {
+    if (e.code === "permission-denied") gate("", `Signed in as ${st.user?.email}, but the database rules do not allow this account to list trips. Check that the rules v5 are published and that this email is the one in the rules.`);
+    else gate("", "Could not load: " + (e.code || e.message));
+  }
+}
+
+function render() {
+  $("#btnRefresh").hidden = false; $("#btnOut").hidden = false; $("#who").textContent = `${st.user?.email || ""}  loaded ${ago(st.loadedAt)}`;
+  if (st.view === "trip") return renderTrip();
+  const T = st.trips, today0 = startOfToday();
+  const activeToday = T.filter(a => a.last >= today0).length;
+  const flagged = T.filter(a => a.flagCount).length;
+  const ev = activity(T);
+  const shown = T.filter(a => {
+    if (st.filter === "today" && a.last < today0) return false;
+    if (st.filter === "flags" && !a.flagCount) return false;
+    if (st.q && !((a.t.name || "") + " " + a.id).toLowerCase().includes(st.q.toLowerCase())) return false;
+    return true;
+  });
+  const evShown = ev.filter(x => st.filter !== "today" || x.at >= today0).slice(0, 40);
+  app.innerHTML = `
+  <div class="kpis">
+    <div class="kpi"><b>${T.length}</b><span class="muted small">trips</span></div>
+    <div class="kpi"><b>${activeToday}</b><span class="muted small">active today</span></div>
+    <div class="kpi"><b class="${flagged ? "warn" : "good"}">${flagged}</b><span class="muted small">with flags</span></div>
+    <div class="kpi"><b>${T.reduce((a, x) => a + x.expenses.length, 0)}</b><span class="muted small">expenses in total</span></div>
+  </div>
+  <div class="card">
+    <div class="row" style="margin-bottom:10px">
+      <h2 class="grow" style="margin:0">Trips</h2>
+      <input type="search" id="q" placeholder="Search name or code" value="${esc(st.q)}">
+      <select id="flt"><option value="all">All trips</option><option value="today">Active today</option><option value="flags">With flags</option></select>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr><th>Trip</th><th>Code</th><th>Dates</th><th class="num">People</th><th class="num">Expenses</th><th class="num">Spend</th><th>Last activity</th><th>Flags</th></tr></thead>
+      <tbody>${shown.map(a => `<tr class="click" data-code="${esc(a.id)}">
+        <td><b>${esc(a.t.name || "(no name)")}</b>${a.t.imported ? ' <span class="pill">imported</span>' : ""}</td>
+        <td>${esc(a.id)}</td>
+        <td class="small muted">${esc([a.t.start, a.t.end].filter(Boolean).join(" to "))}</td>
+        <td class="num">${a.claimed}/${a.people.length}</td>
+        <td class="num">${a.expenses.length}</td>
+        <td class="num">${money(a.spend, a.t.currency)}</td>
+        <td title="${esc(when(a.last))}">${esc(ago(a.last))}<br><span class="muted small">${esc(when(a.last))}</span></td>
+        <td>${a.flags.filter(f => f.level !== "info").map(f => `<span class="pill ${f.level}">${esc(f.text.length > 46 ? f.text.slice(0, 44) + "..." : f.text)}</span>`).join("") || '<span class="pill good">clean</span>'}${a.payments.length ? `<span class="pill">${a.payments.length} payment${a.payments.length > 1 ? "s" : ""}</span>` : ""}</td>
+      </tr>`).join("") || `<tr><td colspan="8" class="muted">No trips match.</td></tr>`}</tbody>
+    </table></div>
+    <p class="muted small" style="margin:8px 0 0">People shows claimed names over total names. Click a trip to see its people, balances, expenses and payments in plain words.</p>
+  </div>
+  <div class="card">
+    <h2>Recent activity, all trips</h2>
+    <div class="scroll"><table><thead><tr><th>When</th><th>Trip</th><th>What</th><th>Detail</th></tr></thead>
+    <tbody>${evShown.map(x => `<tr class="click" data-code="${esc(x.code)}"><td class="small" title="${esc(ago(x.at))}">${esc(when(x.at))}</td><td>${esc(x.trip)}</td><td>${esc(x.text)}</td><td class="muted">${esc(x.detail)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">Nothing yet.</td></tr>`}</tbody></table></div>
+  </div>`;
+  $("#flt").value = st.filter;
+  $("#flt").onchange = e => { st.filter = e.target.value; render(); };
+  $("#q").oninput = e => { st.q = e.target.value; const pos = e.target.selectionStart; render(); const q = $("#q"); q.focus(); q.setSelectionRange(pos, pos); };
+  app.querySelectorAll("tr.click").forEach(r => r.onclick = () => { st.view = "trip"; st.code = r.dataset.code; render(); scrollTo(0, 0); });
+}
+
+function renderTrip() {
+  const a = st.trips.find(x => x.id === st.code); if (!a) { st.view = "list"; return render(); }
+  const { t, people, expenses, payments, bal, nm } = a, cur = t.currency || "USD";
+  const exps = expenses.slice().sort((x, y) => (y.createdAt || 0) - (x.createdAt || 0));
+  const hh = {}; for (const p of people) if (p.household?.trim()) (hh[p.household.trim()] ||= []).push(nm(p.id));
+  app.innerHTML = `
+  <p><button class="link" id="back">&larr; All trips</button></p>
+  <div class="card">
+    <h2>${esc(t.name || "(no name)")} <span class="muted small">code ${esc(a.id)}</span></h2>
+    <div class="muted small">${esc([t.start, t.end].filter(Boolean).join(" to "))} &middot; currency ${esc(cur)} &middot; settle: ${esc(t.settleMode === "hub" ? "through " + nm(t.hub) : "fewest payments")} &middot; rates: ${esc(t.rateMode || "daily")}</div>
+    <div class="muted small">Created ${esc(when(t.createdAt))} &middot; last activity ${esc(when(a.last))} (${esc(ago(a.last))}) &middot; total spend ${esc(money(a.spend, cur))}</div>
+    <p style="margin:10px 0 0">${a.flags.map(f => `<span class="pill ${f.level === "info" ? "" : f.level}">${esc(f.text)}</span>`).join("") || '<span class="pill good">No flags</span>'}</p>
+    <p class="small" style="margin:8px 0 0">Balances add up to <b class="${Math.abs(a.sum) > 0.01 ? "bad" : "good"}">${a.sum.toFixed(2)}</b>.</p>
+  </div>
+  <div class="card"><h2>People and balances</h2><div class="scroll"><table>
+    <thead><tr><th>Name</th><th>Joined</th><th>Household</th><th class="num">Pays for</th><th>Days out</th><th>Payment details</th><th class="num">Paid</th><th class="num">Share</th><th class="num">Sent</th><th class="num">Received</th><th class="num">Balance</th></tr></thead>
+    <tbody>${people.map(p => { const b = bal[p.id] || { paid: 0, share: 0, sent: 0, recv: 0, net: 0 };
+      return `<tr><td><b>${esc(p.name)}</b>${p.nickname ? ` <span class="muted">(${esc(p.nickname)})</span>` : ""}</td>
+      <td>${p.uid ? '<span class="pill good">claimed</span>' : '<span class="pill warn">not claimed</span>'}</td>
+      <td>${esc(p.household || "")}</td><td class="num">${esc(p.weight ?? 1)}</td><td class="small">${esc((p.away || []).join(", "))}</td>
+      <td class="small muted">${esc([p.venmo && "Venmo", p.revolut && "Revolut", p.zelle && "Zelle", p.paypal && "PayPal", p.other && "Other"].filter(Boolean).join(", ") || "none")}</td>
+      <td class="num">${money(b.paid, cur)}</td><td class="num">${money(b.share, cur)}</td><td class="num">${money(b.sent, cur)}</td><td class="num">${money(b.recv, cur)}</td>
+      <td class="num ${b.net > .004 ? "good" : b.net < -.004 ? "bad" : "muted"}"><b>${money(b.net, cur)}</b></td></tr>`; }).join("")}</tbody></table></div>
+    <p class="muted small" style="margin:8px 0 0">Payment handles are not shown here, only whether any are set. Open the Firebase Console if you need one to fix a problem.</p>
+  </div>
+  <div class="card"><h2>Expenses (${expenses.length}), newest entered first</h2><div class="scroll"><table>
+    <thead><tr><th>Entered</th><th>What</th><th>Date</th><th class="num">Amount</th><th>Paid by</th><th>Split between</th><th>Entered by</th><th>Edited by</th></tr></thead>
+    <tbody>${exps.map(e => { const M = a.M; const sp = Object.keys(e.split || {}).filter(k => +e.split[k] > 0);
+      const flat = e.currency && e.currency !== cur ? ` <span class="muted small">(${esc(money(M.expTotal(e), cur))} at ${esc(e.rate || "no rate")})</span>` : "";
+      const payers = e.payers && Object.keys(e.payers).length ? Object.entries(e.payers).map(([p, v]) => nm(p) + " " + money(v, e.currency)).join(", ") : nm(e.paidBy);
+      return `<tr><td class="small">${esc(when(e.createdAt))}</td><td>${esc(e.description || "")}${e.refund ? ' <span class="pill warn">refund</span>' : ""}${e.hasReceipt ? ' <span class="pill">receipt</span>' : ""}${e.source && e.source !== "manual" ? ` <span class="pill">${esc(e.source)}</span>` : ""}<br><span class="muted small">${esc(e.category || "")}${e.note ? " &middot; " + esc(e.note) : ""}</span></td>
+      <td class="small">${esc(e.date || "")}</td><td class="num">${esc(money(e.amount, e.currency || cur))}${flat}</td><td>${esc(payers)}</td>
+      <td class="small">${sp.length === people.length ? "Everyone" : esc(sp.map(nm).join(", ") || "nobody")}${e.mode === "items" ? " (by item)" : ""}</td>
+      <td class="small">${esc(e.createdByName || "")}</td><td class="small">${e.editedAt ? esc((e.editedByName || "someone") + ", " + when(e.editedAt)) : ""}</td></tr>`; }).join("") || `<tr><td colspan="8" class="muted">No expenses yet.</td></tr>`}</tbody></table></div></div>
+  <div class="card"><h2>Payments marked paid (${payments.length})</h2><div class="scroll"><table>
+    <thead><tr><th>When</th><th>From</th><th>To</th><th class="num">Amount</th><th>Kind</th></tr></thead>
+    <tbody>${payments.slice().sort((x, y) => (y.createdAt || 0) - (x.createdAt || 0)).map(p => `<tr><td class="small">${esc(when(p.createdAt))}</td><td>${esc(nm(p.from))}</td><td>${esc(nm(p.to))}</td><td class="num">${esc(money(p.amount, cur))}</td><td class="small muted">${esc(p.kind || "")}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">None.</td></tr>`}</tbody></table></div></div>
+  ${Object.keys(hh).length ? `<div class="card"><h2>Households</h2>${Object.entries(hh).map(([k, v]) => `<div>${esc(k)}: ${esc(v.join(", "))}</div>`).join("")}</div>` : ""}`;
+  $("#back").onclick = () => { st.view = "list"; render(); scrollTo(0, 0); };
+}
+
+/* ---------- start ---------- */
+(async function start() {
+  try {
+    const cfg = await loadConfig(); st.cfg = cfg;
+    if (!cfg?.firebase?.apiKey) return gate("", "No Firebase settings found in config.js.");
+    const [{ initializeApp }, A, F] = await Promise.all([import(FB + "firebase-app.js"), import(FB + "firebase-auth.js"), import(FB + "firebase-firestore.js")]);
+    st.mods = { A, F };
+    const fapp = initializeApp(cfg.firebase, "helpdesk");
+    st.auth = A.getAuth(fapp); st.db = F.getFirestore(fapp);
+    A.onAuthStateChanged(st.auth, u => {
+      st.user = u && !u.isAnonymous ? u : null;
+      if (st.user) loadAll(); else gate();
+    });
+  } catch (e) { gate("", "Could not start: " + (e.message || e)); }
+  $("#btnRefresh").onclick = () => loadAll();
+  $("#btnOut").onclick = async () => { await st.mods.A.signOut(st.auth); st.trips = []; st.view = "list"; };
+})();
+</script>
+</body>
+</html>
