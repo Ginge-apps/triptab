@@ -359,16 +359,16 @@ function renderTrip() {
   const { F } = st.mods;
   app.querySelectorAll("[data-ok]").forEach(b => b.onclick = async () => {
     const f = a.flags[+b.dataset.ok], note = (app.querySelector(`[data-note="${b.dataset.ok}"]`)?.value || "").trim();
-    b.disabled = true;
+    b.disabled = true; b.textContent = "Saving...";
     try {
       await F.setDoc(F.doc(st.db, "helpdeskReviews", f.rid), { trip: a.id, key: f.key, text: f.text, note, by: st.user?.email || "", at: Date.now() });
       const y = scrollY; await loadAll(true); scrollTo(0, y);
-    } catch (e) { b.disabled = false; const m = app.querySelector(`[data-copied="${b.dataset.ok}"]`); if (m) m.textContent = e.code === "permission-denied" ? "Could not save the review. Rules v7 must be published first." : "Could not save: " + (e.code || e.message); }
+    } catch (e) { b.disabled = false; b.textContent = "Mark OK, no action needed"; const m = app.querySelector(`[data-copied="${b.dataset.ok}"]`); if (m) m.textContent = e.code === "permission-denied" ? "Could not save the review. Rules v7 must be published first." : "Could not save: " + (e.code || e.message); }
   });
   app.querySelectorAll("[data-unreview]").forEach(b => b.onclick = async () => {
-    const f = a.flags[+b.dataset.unreview]; b.disabled = true;
+    const f = a.flags[+b.dataset.unreview]; b.disabled = true; b.textContent = "Undoing...";
     try { await F.deleteDoc(F.doc(st.db, "helpdeskReviews", f.rid)); const y = scrollY; await loadAll(true); scrollTo(0, y); }
-    catch (e) { b.disabled = false; }
+    catch (e) { b.disabled = false; b.textContent = "Undo review"; }
   });
   app.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
     const f = a.flags[+b.dataset.copy], note = app.querySelector(`[data-copied="${b.dataset.copy}"]`);

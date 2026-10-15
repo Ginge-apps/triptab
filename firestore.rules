@@ -1,5 +1,6 @@
 rules_version = '2';
-// Ted's Tab database rules, v6 (Oct 15, 2026).
+// Ted's Tab database rules, v7 (Oct 15, 2026). base: v6
+// v7: adds the helpdeskReviews collection, readable and writable only by the help-desk admin, so the Help Desk can save 'reviewed OK' notes on flags. No access to trips, people, expenses, payments or receipts changes.
 // v6: adds one help-desk admin (a verified Google sign-in as ted.brownn@gmail.com) who may list all trips, for the read-only Help Desk page (admin.html). Nothing else changes from v5.
 // v5: crew edit only their own crew entry; unclaimed names can be claimed but not edited by crew (organizer edits those).
 // v3: anyone in the trip can fix an expense; delete stays with the creator or organizer.
@@ -78,6 +79,11 @@ service cloud.firestore {
           || !exists(/databases/$(database)/documents/trips/$(t)/expenses/$(r))
           || get(/databases/$(database)/documents/trips/$(t)/expenses/$(r)).data.get('createdBy', '') == me());
       }
+    }
+
+    // v7: Help Desk review notes. Nobody but the verified help-desk admin can read or write these.
+    match /helpdeskReviews/{r} {
+      allow read, write: if isAdmin();
     }
   }
 }
