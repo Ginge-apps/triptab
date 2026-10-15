@@ -208,7 +208,6 @@ async function loadAll() {
     const snap = await F.getDocs(F.collection(st.db, "trips"));
     const out = [];
     for (const d of snap.docs) {
-      const base = F.collection(st.db, "trips", d.id);
       const [pe, ex, pa] = await Promise.all(["people", "expenses", "payments"].map(c => F.getDocs(F.collection(st.db, "trips", d.id, c))));
       const rows = s => s.docs.map(x => ({ id: x.id, ...x.data() }));
       out.push(analyse(d.id, d.data(), rows(pe).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), rows(ex), rows(pa)));
@@ -217,7 +216,7 @@ async function loadAll() {
     st.loadedAt = Date.now();
     render();
   } catch (e) {
-    if (e.code === "permission-denied") gate("", `Signed in as ${st.user?.email}, but the database rules do not allow this account to list trips. Check that the rules v5 are published and that this email is the one in the rules.`);
+    if (e.code === "permission-denied") gate("", `Signed in as ${st.user?.email}, but the database rules do not allow this account to list trips. Check that rules v6 are published and that this email is the one in the rules.`);
     else gate("", "Could not load: " + (e.code || e.message));
   }
 }
