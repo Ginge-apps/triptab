@@ -50,12 +50,14 @@
   .issue ol { margin:6px 0 8px 20px; padding:0; }
   .issue li { margin:2px 0; }
   .issue .exp { margin:3px 0; }
+  .issue.done { opacity:.8; border-left-color:var(--good); }
+  .issue input[type=text] { font:inherit; padding:5px 8px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); min-width:220px; }
   select, input[type=search] { font:inherit; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
 </style>
 </head>
 <body>
 <header>
-  <h1>Ted's Tab Help Desk <span class="muted small">read-only</span></h1>
+  <h1>Ted's Tab Help Desk <span class="muted small">never changes trips</span></h1>
   <div class="row">
     <span id="who" class="muted small"></span>
     <button id="btnRefresh" hidden>Refresh</button>
@@ -136,7 +138,8 @@ const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); retur
 const todayISO = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 
 /* ---------- analysis of one trip ---------- */
-function analyse(id, t, people, expenses, payments) {
+function analyse(id, t, people, expenses, payments, reviews) {
+  reviews = reviews || {};
   const M = MATH(t.currency || "USD");
   const pById = Object.fromEntries(people.map(p => [p.id, p]));
   const nm = pid => pid === "KITTY" ? (t.kitty?.name || "Kitty") : pById[pid] ? (pById[pid].nickname || firstName(pById[pid].name)) : "Removed person";
@@ -178,10 +181,16 @@ function analyse(id, t, people, expenses, payments) {
   if (unclaimed.length) add("info", "unclaimed", `${unclaimed.length} name(s) not claimed yet: ${unclaimed.map(p => nm(p.id)).join(", ")}`, [], "Nobody has tapped these names on their own phone yet. Expenses still work; they just cannot be entered 'as me' by that person.", ["Ask the person to open the trip in Ted's Tab and tap their name under 'Which one are you?'.", "If they never installed it, send the trip code from the Invite button."]);
   const noPay = people.filter(p => !(p.venmo || p.revolut || p.zelle || p.paypal || p.other));
   if (noPay.length && payments.length) add("info", "nopay", `${noPay.length} person(s) with no payment details`, [], "Settle-up cannot show a pay button for them.", ["Each person opens Crew, taps their name, and adds Venmo, Zelle, PayPal or Revolut."]);
+  const hash = str => { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0; return h.toString(36); };
+  for (const f of flags) {
+    const parts = f.ids.slice().sort().map(eid => { const e = expenses.find(x => x.id === eid); return e ? [eid, e.amount, e.date, e.paidBy, e.currency, e.rate, Object.keys(e.split || {}).sort().join(",")].join(":") : eid; });
+    f.rid = id + "_" + f.key + "_" + hash(f.text + "|" + parts.join("|"));
+    f.review = reviews[f.rid] || null;
+  }
   const times = [t.createdAt, ...expenses.flatMap(e => [e.createdAt, e.editedAt, e.updatedAt]), ...payments.map(p => p.createdAt)].filter(Boolean);
   const last = times.length ? Math.max(...times) : 0;
   const spend = expenses.reduce((a, e) => a + M.expTotal(e), 0);
-  const flagCount = flags.filter(f => f.level !== "info").length;
+  const flagCount = flags.filter(f => f.level !== "info" && !f.review).length;
   return { id, t, people, expenses, payments, bal, sum, flags, flagCount, last, spend, nm, claimed: people.length - unclaimed.length, M };
 }
 
@@ -217,16 +226,19 @@ async function signIn() {
   catch (e) { gate("", "Sign-in did not finish: " + (e.code || e.message)); }
 }
 
-async function loadAll() {
+async function loadAll(keepView) {
   app.innerHTML = `<div class="card muted">Loading every trip...</div>`;
   const { F } = st.mods;
+  if (!keepView) { st.view = "list"; }
+  const reviews = {};
+  try { (await F.getDocs(F.collection(st.db, "helpdeskReviews"))).docs.forEach(d => { reviews[d.id] = d.data(); }); } catch (e) { /* before rules v7 this is refused; flags simply show as unreviewed */ }
   try {
     const snap = await F.getDocs(F.collection(st.db, "trips"));
     const out = [];
     for (const d of snap.docs) {
       const [pe, ex, pa] = await Promise.all(["people", "expenses", "payments"].map(c => F.getDocs(F.collection(st.db, "trips", d.id, c))));
       const rows = s => s.docs.map(x => ({ id: x.id, ...x.data() }));
-      out.push(analyse(d.id, d.data(), rows(pe).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), rows(ex), rows(pa)));
+      out.push(analyse(d.id, d.data(), rows(pe).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)), rows(ex), rows(pa), reviews));
     }
     st.trips = out.sort((a, b) => b.last - a.last);
     st.loadedAt = Date.now();
@@ -274,7 +286,7 @@ function render() {
         <td class="num">${a.expenses.length}</td>
         <td class="num">${money(a.spend, a.t.currency)}</td>
         <td title="${esc(when(a.last))}">${esc(ago(a.last))}<br><span class="muted small">${esc(when(a.last))}</span></td>
-        <td>${a.flags.filter(f => f.level !== "info").map(f => `<span class="pill ${f.level}">${esc(f.text.length > 46 ? f.text.slice(0, 44) + "..." : f.text)}</span>`).join("") || '<span class="pill good">clean</span>'}${a.payments.length ? `<span class="pill">${a.payments.length} payment${a.payments.length > 1 ? "s" : ""}</span>` : ""}</td>
+        <td>${a.flags.filter(f => f.level !== "info" && !f.review).map(f => `<span class="pill ${f.level}">${esc(f.text.length > 46 ? f.text.slice(0, 44) + "..." : f.text)}</span>`).join("") || '<span class="pill good">clean</span>'}${a.flags.some(f => f.review) ? `<span class="pill">${a.flags.filter(f => f.review).length} reviewed OK</span>` : ""}${a.payments.length ? `<span class="pill">${a.payments.length} payment${a.payments.length > 1 ? "s" : ""}</span>` : ""}</td>
       </tr>`).join("") || `<tr><td colspan="8" class="muted">No trips match.</td></tr>`}</tbody>
     </table></div>
     <p class="muted small" style="margin:8px 0 0">People shows claimed names over total names. Click a trip to see its people, balances, expenses and payments in plain words.</p>
@@ -301,16 +313,17 @@ function renderTrip() {
     <h2>${esc(t.name || "(no name)")} <span class="muted small">code ${esc(a.id)}</span></h2>
     <div class="muted small">${esc([t.start, t.end].filter(Boolean).join(" to "))} &middot; currency ${esc(cur)} &middot; settle: ${esc(t.settleMode === "hub" ? "through " + nm(t.hub) : "fewest payments")} &middot; rates: ${esc(t.rateMode || "daily")}</div>
     <div class="muted small">Created ${esc(when(t.createdAt))} &middot; last activity ${esc(when(a.last))} (${esc(ago(a.last))}) &middot; total spend ${esc(money(a.spend, cur))}</div>
-    <p style="margin:10px 0 0">${a.flags.map(f => `<span class="pill ${f.level === "info" ? "" : f.level}">${esc(f.text)}</span>`).join("") || '<span class="pill good">No flags</span>'}</p>
+    <p style="margin:10px 0 0">${a.flags.map(f => `<span class="pill ${f.review ? "good" : f.level === "info" ? "" : f.level}">${esc(f.text)}${f.review ? " (reviewed OK)" : ""}</span>`).join("") || '<span class="pill good">No flags</span>'}</p>
     <p class="small" style="margin:8px 0 0">Balances add up to <b class="${Math.abs(a.sum) > 0.01 ? "bad" : "good"}">${a.sum.toFixed(2)}</b>.</p>
   </div>
   ${a.flags.length ? `<div class="card" id="issues"><h2>Issues to look at (${a.flags.length})</h2>
-    <p class="muted small" style="margin:0 0 10px">This page is read-only. Each issue says what it means and how to fix it in the app. To have Claude walk you through it, press Copy for Claude and paste it into the Slush App chat.</p>
-    ${a.flags.map((f, i) => `<div class="issue lv-${f.level}">
+    <p class="muted small" style="margin:0 0 10px">This page never changes a trip. Each issue says what it means and how to fix it in the app. If you have looked and it is fine, press Mark OK: that saves only a review note, and the flag comes back by itself if the expenses involved change. To have Claude walk you through it, press Copy for Claude and paste it into the Slush App chat.</p>
+    ${a.flags.map((f, i) => `<div class="issue lv-${f.level}${f.review ? " done" : ""}">
       <h3>${esc(f.text)}</h3>
       ${f.why ? `<div class="muted small">${esc(f.why)}</div>` : ""}
       ${f.ids.length ? `<div class="small" style="margin-top:6px"><b>Expenses involved</b> (tap to jump to the row)</div>${f.ids.map(id => { const e = expenses.find(x => x.id === id); return e ? `<div class="exp small"><button class="link" data-goto="${esc(id)}">${esc(e.description || "Expense")}</button> &middot; ${esc(money(e.amount, e.currency || cur))} &middot; ${esc(e.date || "no date")} &middot; paid by ${esc(nm(e.paidBy))} &middot; entered by ${esc(e.createdByName || "unknown")} ${esc(when(e.createdAt))}${e.hasReceipt ? " &middot; has receipt" : ""}</div>` : ""; }).join("")}` : ""}
       ${f.fix.length ? `<div class="small" style="margin-top:6px"><b>How to fix</b></div><ol class="small">${f.fix.map(x => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}
+      ${f.review ? `<div class="small good" style="margin:6px 0"><b>Reviewed OK</b> by ${esc(f.review.by || "someone")} on ${esc(when(f.review.at))}${f.review.note ? ": " + esc(f.review.note) : ""}</div><button data-unreview="${i}">Undo review</button> ` : `<div class="row small" style="margin:6px 0"><input type="text" data-note="${i}" maxlength="200" placeholder="Note, for example: two real rounds, same price"><button class="primary" data-ok="${i}">Mark OK, no action needed</button></div>`}
       <button data-copy="${i}">Copy for Claude</button> <span class="muted small" data-copied="${i}"></span>
     </div>`).join("")}</div>` : ""}
   <div class="card"><h2>People and balances</h2><div class="scroll"><table>
@@ -343,6 +356,20 @@ function renderTrip() {
     const row = [...app.querySelectorAll("tr[data-exp]")].find(r => r.dataset.exp === b.dataset.goto); if (!row) return;
     row.scrollIntoView({ block: "center", behavior: "smooth" }); row.classList.add("flash"); setTimeout(() => row.classList.remove("flash"), 2500);
   });
+  const { F } = st.mods;
+  app.querySelectorAll("[data-ok]").forEach(b => b.onclick = async () => {
+    const f = a.flags[+b.dataset.ok], note = (app.querySelector(`[data-note="${b.dataset.ok}"]`)?.value || "").trim();
+    b.disabled = true;
+    try {
+      await F.setDoc(F.doc(st.db, "helpdeskReviews", f.rid), { trip: a.id, key: f.key, text: f.text, note, by: st.user?.email || "", at: Date.now() });
+      const y = scrollY; await loadAll(true); scrollTo(0, y);
+    } catch (e) { b.disabled = false; const m = app.querySelector(`[data-copied="${b.dataset.ok}"]`); if (m) m.textContent = e.code === "permission-denied" ? "Could not save the review. Rules v7 must be published first." : "Could not save: " + (e.code || e.message); }
+  });
+  app.querySelectorAll("[data-unreview]").forEach(b => b.onclick = async () => {
+    const f = a.flags[+b.dataset.unreview]; b.disabled = true;
+    try { await F.deleteDoc(F.doc(st.db, "helpdeskReviews", f.rid)); const y = scrollY; await loadAll(true); scrollTo(0, y); }
+    catch (e) { b.disabled = false; }
+  });
   app.querySelectorAll("[data-copy]").forEach(b => b.onclick = async () => {
     const f = a.flags[+b.dataset.copy], note = app.querySelector(`[data-copied="${b.dataset.copy}"]`);
     const lines = f.ids.map(id => { const e = expenses.find(x => x.id === id); if (!e) return ""; const sp = Object.keys(e.split || {}).filter(k => +e.split[k] > 0).map(nm).join(", ") || "nobody";
@@ -367,7 +394,7 @@ function renderTrip() {
       if (st.user) loadAll(); else gate();
     });
   } catch (e) { gate("", "Could not start: " + (e.message || e)); }
-  $("#btnRefresh").onclick = () => loadAll();
+  $("#btnRefresh").onclick = () => loadAll(true);
   $("#btnOut").onclick = async () => { await st.mods.A.signOut(st.auth); st.trips = []; st.view = "list"; };
 })();
 </script>
