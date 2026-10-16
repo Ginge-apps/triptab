@@ -652,6 +652,7 @@ function matchPerson(name) {
 
 /* ===================== Boot ===================== */
 async function boot() {
+  try { navigator.storage?.persist?.().catch(() => {}); } catch {}
   renderShell("Loading");
   try { S.store = CFG.firebase?.apiKey ? await cloudStore() : localStore(); }
   catch (e) { console.error(e); S.store = localStore(); toast("Could not reach the sync service. Working on this phone only for now.", 5000); }
@@ -676,10 +677,10 @@ function watchTrip(id) {
 }
 function openTrip(id) {
   S.unsubTrip.forEach(u => u()); S.unsubTrip = [];
-  S.tripId = id; S.trip = S.trips[id] || null; S.view = "trip"; S.people = []; S.expenses = []; S.payments = []; S.loaded = { expenses: false };
+  S.tripId = id; S.trip = S.trips[id] || null; S.view = "trip"; S.people = []; S.expenses = []; S.payments = []; S.requests = []; S.reqSubFor = null; S.loaded = { expenses: false };
   LS.set("lastTrip", id);
   const base = "trips/" + id;
-  S.unsubTrip.push(S.store.sub(base + "/people", docs => { S.people = docs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)); render(); }));
+  S.unsubTrip.push(S.store.sub(base + "/people", docs => { S.people = docs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)); checkReclaimDone(); render(); }));
   S.unsubTrip.push(S.store.sub(base + "/expenses", (docs, changes) => {
     const first = !S.loaded.expenses; S.expenses = docs; S.loaded.expenses = true;
     if (!first) for (const c of changes) if (c.type === "added" && !c.local && c.data.createdBy !== S.uid) {
@@ -692,7 +693,7 @@ function openTrip(id) {
   S.unsubTrip.push(S.store.sub(base + "/payments", docs => { S.payments = docs; render(); }));
   render();
 }
-function goHome() { S.unsubTrip.forEach(u => u()); S.unsubTrip = []; S.tripId = null; S.trip = null; S.view = "home"; LS.set("lastTrip", null); render(); }
+function goHome() { S.unsubTrip.forEach(u => u()); S.unsubTrip = []; S.reqSubFor = null; S.tripId = null; S.trip = null; S.view = "home"; LS.set("lastTrip", null); render(); }
 async function joinTrip(code) {
   code = code.replace(/[^A-Z0-9]/gi, "").toUpperCase();
   if (!code) return;
@@ -741,7 +742,13 @@ function renderTrip() {
   const days = tripDays(t).length || 1;
   const myBal = me && bal[me] ? bal[me].net : null;
   const claim = !me && !S.people.length && !isOrganizer() ? `<div class="banner"><b>Add yourself</b><span class="muted" style="font-size:13.5px">Nobody is on this trip's crew yet. Add your name to get started.</span><div class="chips"><button class="chip" data-act="add-me">Add me</button></div></div>`
-    : !me && S.people.length ? `<div class="banner"><b>Which one are you?</b><span class="muted" style="font-size:13.5px">Tap your name so expenses default to you.</span><div class="chips">${S.people.filter(p => !p.uid).map(p => chipPerson(p, false, "claim")).join("")}<button class="chip" data-act="add-me">I'm not listed</button></div></div>` : "";
+    : !me && S.people.length ? `<div class="banner"><b>Which one are you?</b><span class="muted" style="font-size:13.5px">Tap your name so expenses default to you.</span><div class="chips">${S.people.map(p => takenElsewhere(p) ? takenChip(p) : chipPerson(p, false, "claim")).join("")}<button class="chip" data-act="add-me">I'm not listed</button></div><span class="hint">A name marked "taken" is linked to another phone. If it's you, tap it to get it back.</span></div>` : "";
+  const pend = LS.get("reclaim:" + S.tripId, null);
+  const pending = pend && S.people.some(p => p.id === pend) && personById(pend).uid !== S.uid ? `<div class="banner"><b>Waiting for ${esc(orgName())}</b><span class="muted" style="font-size:13.5px">You asked to use the name ${esc(personById(pend).name)} on this phone. You can keep adding expenses meanwhile; they count as yours.</span></div>` : "";
+  const reqBanner = isOrganizer() ? (S.requests || []).filter(r => S.people.some(p => p.id === r.pid) && personById(r.pid).uid !== r.uid).map(r => { const p = personById(r.pid), mine = p.uid && p.uid === S.uid, dup = S.people.find(x => x.uid && x.uid === r.uid && x.id !== r.pid);
+    return mine ? `<div class="banner" style="border-color:var(--bad)"><b>Someone asked to use your name</b><span class="muted" style="font-size:13.5px">A phone asked to be ${esc(p.name)}. That's you, so it can't be moved.</span><button class="btn small ghost" data-act="req-no" data-id="${esc(r.id)}">Turn it down</button></div>`
+    : `<div class="banner" style="border-color:var(--accent)"><b>${esc(dn(p))} is on a new phone</b><span class="muted" style="font-size:13.5px">Someone asked to use the name ${esc(p.name)} on their phone${dup ? `. They also added themselves as ${esc(dup.name)}; that entry will be merged into ${esc(p.name)}` : ""}. Allow it if you know it's them; nothing they entered is lost.</span><div class="two"><button class="btn small ghost" data-act="req-no" data-id="${esc(r.id)}">Not them</button><button class="btn small primary" data-act="req-ok" data-id="${esc(r.id)}">Allow</button></div></div>`; }).join("") : "";
+  const safariNote = isIOS && !isStandalone && S.store.mode === "cloud" ? `<div class="banner" style="border-color:var(--warn)"><b>You're in Safari, not the app</b><span class="muted" style="font-size:13.5px">Safari can forget you after about a week. Add ${esc(APP)} to your Home Screen and use it from there; open the trip there and tap your name.</span><button class="btn small ghost" data-act="install-help" style="justify-self:start">Show me how</button></div>` : "";
   const header = `<div class="top-actions"><button class="icon-btn" data-act="home" aria-label="All trips">${ICON.back}</button><div class="row"><button class="icon-btn" data-act="invite" aria-label="Invite">${ICON.users}</button><button class="icon-btn" data-act="trip-settings" aria-label="Trip settings">${ICON.gear}</button></div></div>
   <header class="pass">
     <div class="pass-main">
@@ -768,7 +775,9 @@ function renderTrip() {
   else if (S.tab === "crew") body = renderCrew(bal);
   else body = renderFeed(bal);
   const nb = (tab, icon, label) => `<button data-act="tab" data-tab="${tab}" ${S.tab === tab ? 'aria-current="page"' : ""}>${icon}<span>${label}</span></button>`;
-  return `<div class="wrap">${header}${claim ? `<div class="section">${claim}</div>` : ""}${body}</div>
+  ensureReqSub();
+  const tops = [reqBanner, claim, pending, safariNote].filter(Boolean).join("");
+  return `<div class="wrap">${header}${tops ? `<div class="section">${tops}</div>` : ""}${body}</div>
   <nav class="nav"><div class="nav-in">${nb("feed", ICON.list, "Expenses")}${nb("settle", ICON.scale, "Settle")}<button class="fab" data-act="add" aria-label="Add expense">${ICON.plus}</button>${nb("stats", ICON.chart, "Stats")}${nb("crew", ICON.users, "Crew")}</div></nav>`;
 }
 function tripDays(t) {
@@ -1011,11 +1020,82 @@ function tease(pid) {
   sfx("sad"); toast(line, 5000); setTimeout(() => say(line), 600);
 }
 // Before anyone adds an expense the app needs to know who they are, so the payer defaults correctly
+/* ---------- Getting back in on a new phone (v2.4.8) ---------- */
+// A phone that lost its sign-in (Safari cleared it, app reinstalled, new phone) can't claim its own name, because the name
+// is still linked to the old sign-in. The crew member asks; the organizer gets an Allow banner and moves the name (rules v8).
+function takenElsewhere(p) { return !!(p.uid && p.uid !== S.uid); }
+function takenChip(p) { return `<button class="chip hh-chip" data-act="reclaim" data-pid="${p.id}"><span class="dot" style="background:${p.color || "#888"}">${esc(initials(p.name))}</span>${esc(dn(p))} <span class="muted" style="font-size:11px">taken</span></button>`; }
+function orgName() { const p = S.people.find(x => x.uid && x.uid === S.trip?.createdBy); return p ? dn(p) : "the organizer"; }
+function ensureReqSub() {
+  if (!S.tripId || S.store.mode === "local" || S.reqSubFor === S.tripId) return;
+  if (!S.trip) return;
+  S.reqSubFor = S.tripId; const base = "trips/" + S.tripId, id = S.tripId;
+  if (isOrganizer()) {
+    let first = true;
+    S.unsubTrip.push(S.store.sub(base + "/requests", (docs, changes) => {
+      S.requests = docs;
+      if (!first && (changes || []).some(c => c.type === "added" && !c.local)) { sfx("ping"); toast("Someone is asking to use their name on a new phone. See the top of the trip.", 5000); }
+      first = false; render();
+    }, e => console.warn("requests", e)));
+  } else {
+    let seen = false;
+    S.unsubTrip.push(S.store.sub(`${base}/requests/${S.uid}`, d => {
+      if (d) { seen = true; return; }
+      if (!seen) return; seen = false;
+      const pend = LS.get("reclaim:" + id, null);
+      if (pend && personById(pend).uid !== S.uid) {
+        LS.set("reclaim:" + id, null); LS.set("me:" + id, null);
+        toast(`${orgName()} didn't move that name to this phone. Check with them, then tap your name again.`, 6500); render();
+      }
+    }, e => console.warn("my request", e)));
+  }
+}
+function checkReclaimDone() {
+  const pend = S.tripId && LS.get("reclaim:" + S.tripId, null);
+  if (pend && S.people.find(p => p.id === pend)?.uid === S.uid) { LS.set("reclaim:" + S.tripId, null); LS.set("me:" + S.tripId, pend); sfx("paid"); toast(`You're back in as ${short(pend)}.`, 4500); }
+}
+function openReclaim(pid) {
+  const p = personById(pid);
+  if (isOrganizer()) { // the organizer can move a name straight away
+    confirmBox(`Move ${dn(p)} to this phone?`, `${p.name} is linked to another phone. Moving it makes this phone ${dn(p)}; the other phone will be asked who it is.`, "Move it", () => {
+      write(S.store.update(`trips/${S.tripId}/people/${pid}`, { uid: S.uid })); LS.set("me:" + S.tripId, pid); toast(`This phone is now ${dn(p)}.`);
+    });
+    return;
+  }
+  openSheet(`${sheetHead("Is this you?")}<div class="stack">
+    <p style="margin:0"><b>${esc(p.name)}</b> is linked to another phone, or to this phone before the app forgot it.</p>
+    <p class="muted" style="margin:0">If that's you, ask ${esc(orgName())} to move your name here. Nothing you entered is lost, and you can keep adding expenses while you wait.</p>
+    <button class="btn primary block" id="rcGo">Yes, that's me. Ask ${esc(orgName())}</button>
+    <button class="btn ghost block" data-act="close">That's not me</button></div>`, { skin: skinOf(S.trip), onMount(sh) {
+    $("#rcGo", sh).onclick = async () => {
+      const b = $("#rcGo", sh); b.disabled = true; b.textContent = "Sending";
+      try { await S.store.set(`trips/${S.tripId}/requests/${S.uid}`, { uid: S.uid, pid, name: String(p.name).slice(0, 60), at: Date.now() }); }
+      catch (e) { console.error(e); b.disabled = false; b.textContent = `Yes, that's me. Ask ${orgName()}`; toast("Could not send it. Check your connection and try again.", 5000); return; }
+      LS.set("me:" + S.tripId, pid); LS.set("reclaim:" + S.tripId, pid);
+      closeSheet(); render(); sfx("ping"); toast(`Sent. ${orgName()} will see it next time they open the trip.`, 5000);
+    };
+  } });
+}
+async function allowReclaim(reqId) {
+  const r = (S.requests || []).find(x => x.id === reqId), keep = r && S.people.find(p => p.id === r.pid); if (!keep) return;
+  const base = "trips/" + S.tripId, dup = S.people.find(x => x.uid && x.uid === r.uid && x.id !== r.pid);
+  let ops;
+  if (dup) { // they had already added themselves again: fold that entry into the old name
+    const plan = planMerge(dup.id, keep.id, { trip: { id: S.tripId, ...S.trip }, people: S.people, expenses: S.expenses, payments: S.payments }, S.uid, myPid() ? short(myPid()) : "");
+    ops = plan.ops.map(o => o.op === "set" && o.path === `${base}/people/${keep.id}` ? { ...o, data: { ...o.data, uid: r.uid } } : o);
+  } else { const { id, ...kp } = keep; ops = [{ op: "set", path: `${base}/people/${keep.id}`, data: { ...kp, uid: r.uid } }]; }
+  ops.push({ op: "del", path: `${base}/requests/${r.id}` });
+  try { await S.store.batch(ops); sfx("paid"); toast(`${dn(keep)} is back in on the new phone.${dup ? ` ${dup.name} was merged in.` : ""}`, 5000); }
+  catch (e) { console.error(e); toast("Could not move the name. Check your connection and try again.", 5000); }
+}
+ACT.reclaim = el => { if (sheetStack.length) closeSheet(); openReclaim(el.dataset.pid); };
+ACT["req-ok"] = el => { el.disabled = true; allowReclaim(el.dataset.id); };
+ACT["req-no"] = el => { el.disabled = true; write(S.store.del(`trips/${S.tripId}/requests/${el.dataset.id}`)); toast("Turned down. Their phone is told to check with you."); };
 function whoFirst(next) {
   if (myPid() || !S.people.length && isOrganizer()) return next();
   const free = S.people.filter(p => !p.uid);
   openSheet(`${sheetHead("Which one are you?")}<div class="stack"><p class="muted" style="margin:0">Tap your name once. New expenses then start with you as the payer.</p>
-    <div class="chips">${free.map(p => chipPerson(p, false, "", `data-who="${p.id}"`)).join("")}<button class="chip" data-who="">I'm not listed</button></div></div>`, {
+    <div class="chips">${S.people.map(p => takenElsewhere(p) ? takenChip(p) : chipPerson(p, false, "", `data-who="${p.id}"`)).join("")}<button class="chip" data-who="">I'm not listed</button></div><span class="hint">"Taken" means the name is linked to another phone. If it's you, tap it.</span></div>`, {
     skin: skinOf(S.trip),
     onMount(sh) { sh.querySelectorAll("[data-who]").forEach(b => b.onclick = () => { closeSheet(); if (b.dataset.who) { claimPerson(b.dataset.who); setTimeout(next, 250); } else openPersonForm(null, true); }); }
   });
@@ -1615,7 +1695,19 @@ function openPersonForm(p, claimSelf) {
       $("#pSave", sh).onclick = () => {
         const name = $("#pN", sh).value.trim(); if (!name) return toast("Enter a name.");
         const rec = { ...p, name, nickname: $("#pNick", sh).value.trim(), household: $("#pHH", sh).value.trim(), venmo: $("#pV", sh).value.trim(), revolut: $("#pR", sh).value.trim().replace(/^https?:\/\/(www\.)?revolut\.me\//i, ""), zelle: $("#pZ", sh).value.trim(), paypal: $("#pP", sh).value.trim(), other: $("#pO", sh).value.trim(), cards: cleanCards($("#pCard", sh).value) };
-        const id = p.id || rid(8); delete rec.id;
+        if (claimSelf && !editing && !p._twinOk) {
+          const low = name.toLowerCase(), f = firstName(name).toLowerCase();
+          const twin = S.people.find(x => x.name.trim().toLowerCase() === low || (x.nickname || "").trim().toLowerCase() === low || firstName(x.name).toLowerCase() === f);
+          if (twin) {
+            openSheet(`${sheetHead("Already on the crew?")}<div class="stack"><p style="margin:0"><b>${esc(twin.name)}</b> is already on this trip. Is that you?</p>
+              <button class="btn primary block" id="twY">Yes, that's me</button><button class="btn ghost block" id="twN">No, add me as someone new</button></div>`, { skin: skinOf(S.trip), onMount(s2) {
+              $("#twY", s2).onclick = () => { closeSheet(); closeSheet(); takenElsewhere(twin) ? openReclaim(twin.id) : twin.uid === S.uid ? toast("You're already " + dn(twin) + ".") : claimPerson(twin.id); };
+              $("#twN", s2).onclick = () => { closeSheet(); p._twinOk = true; $("#pSave", sh).click(); };
+            } });
+            return;
+          }
+        }
+        const id = p.id || rid(8); delete rec.id; delete rec._twinOk;
         if (claimSelf) { rec.uid = S.uid; LS.set("me:" + S.tripId, id); }
         write(S.store.set(`trips/${S.tripId}/people/${id}`, rec)); closeSheet(); toast(editing ? "Saved" : name + " added");
       };

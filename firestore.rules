@@ -1,5 +1,6 @@
 rules_version = '2';
-// Ted's Tab database rules, v7 (Oct 15, 2026). base: v6
+// Ted's Tab database rules, v8 (Oct 15, 2026). App Build (merge chat). base: v7
+// v8: adds trips/{t}/requests/{uid} so a crew member whose phone forgot them can ask the organizer to move their name to the new phone. Nothing else changes.
 // v7: adds the helpdeskReviews collection, readable and writable only by the help-desk admin, so the Help Desk can save 'reviewed OK' notes on flags. No access to trips, people, expenses, payments or receipts changes.
 // v6: adds one help-desk admin (a verified Google sign-in as ted.brownn@gmail.com) who may list all trips, for the read-only Help Desk page (admin.html). Nothing else changes from v5.
 // v5: crew edit only their own crew entry; unclaimed names can be claimed but not edited by crew (organizer edits those).
@@ -69,6 +70,17 @@ service cloud.firestore {
         allow create: if signedIn() && request.resource.data.createdBy == me() && okAmount(request.resource.data.amount);
         allow update: if false;
         allow delete: if signedIn() && (addedByMe() || isOrganizer(t));
+      }
+
+      // v8: "get back in on a new phone". The request's id is the asker's own sign-in, so each phone has at most one.
+      // Only the asker or the organizer can see or remove it. The asker can't move the name; the organizer does that (people rules above).
+      match /requests/{u} {
+        allow read: if signedIn() && (u == me() || isOrganizer(t));
+        allow create, update: if signedIn() && u == me() && request.resource.data.uid == me()
+          && request.resource.data.keys().hasOnly(['uid', 'pid', 'name', 'at'])
+          && request.resource.data.pid is string && request.resource.data.name is string && request.resource.data.name.size() <= 60
+          && exists(/databases/$(database)/documents/trips/$(t)/people/$(request.resource.data.pid));
+        allow delete: if signedIn() && (u == me() || isOrganizer(t));
       }
 
       match /receipts/{r} {
