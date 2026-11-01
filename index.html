@@ -734,6 +734,18 @@ function renderHome() {
     </div>
   </div>`;
 }
+// Pass stub figure (v2.4.9). In a household the number is the household's total, so nobody sees "you are owed"
+// while their partner owes more (Portugal). Whole cents, the same figures as the Settle tab (K17 R37).
+function homeStub(bal, me) {
+  const C = Object.fromEntries(centsOf(bal));
+  const u = unitsMap()[unitKey(me)];
+  if (!u || u.members.length < 2) { const c = C[me] ?? 0; return { cents: c, label: c >= 0 ? "You are owed" : "You owe" }; }
+  const byHH = !!S.trip?.byHousehold;
+  const c = byHH ? (Object.fromEntries(centsOf(unitBalances(bal)))[u.key] ?? 0) : u.members.reduce((a, m) => a + (C[m] ?? 0), 0);
+  const mine = [me, ...u.members.filter(m => m !== me)];
+  const part = m => `${m === me ? "You" : short(m)} ${(C[m] ?? 0) > 0 ? "+" : (C[m] ?? 0) < 0 ? "-" : ""}${fmt(Math.abs(C[m] ?? 0) / 100, tripCur())}`;
+  return { cents: c, label: c >= 0 ? "Your household is owed" : "Your household owes", split: `${u.label}: ${mine.map(part).join(" · ")}` };
+}
 function renderTrip() {
   const t = S.trip, cur = tripCur();
   const bal = computeBalances(S.people, S.expenses, S.payments);
@@ -741,6 +753,7 @@ function renderTrip() {
   const total = S.expenses.reduce((s, e) => s + expTotal(e), 0);
   const days = tripDays(t).length || 1;
   const myBal = me && bal[me] ? bal[me].net : null;
+  const stub = me ? homeStub(bal, me) : null;
   const claim = !me && !S.people.length && !isOrganizer() ? `<div class="banner"><b>Add yourself</b><span class="muted" style="font-size:13.5px">Nobody is on this trip's crew yet. Add your name to get started.</span><div class="chips"><button class="chip" data-act="add-me">Add me</button></div></div>`
     : !me && S.people.length ? `<div class="banner"><b>Which one are you?</b><span class="muted" style="font-size:13.5px">Tap your name so expenses default to you.</span><div class="chips">${S.people.map(p => takenElsewhere(p) ? takenChip(p) : chipPerson(p, false, "claim")).join("")}<button class="chip" data-act="add-me">I'm not listed</button></div><span class="hint">A name marked "taken" is linked to another phone. If it's you, tap it to get it back.</span></div>` : "";
   const pend = LS.get("reclaim:" + S.tripId, null);
@@ -765,8 +778,8 @@ function renderTrip() {
     <div class="perf"></div>
     <div class="pass-stub">
       ${myBal == null ? `<div><div class="pass-meta"><div><span class="k">Trip code</span><span class="v">${esc(S.tripId)}</span></div></div></div>` :
-      `<div><div class="pass-meta"><div><span class="k">${myBal >= 0 ? "You are owed" : "You owe"}</span></div></div><div class="big num">${fmt(Math.abs(myBal), cur)}</div></div>`}
-      <button class="btn small" style="background:rgba(255,255,255,.14);color:var(--hero-ink)" data-act="tab" data-tab="settle">Settle up</button>
+      `<div style="min-width:0"><div class="pass-meta"><div><span class="k">${esc(stub.label)}</span></div></div><div class="big num">${fmt(Math.abs(stub.cents) / 100, cur)}</div>${stub.split ? `<div class="v num" style="font:500 12px/1.3 var(--mono);color:var(--hero-muted);margin-top:5px">${esc(stub.split)}</div>` : ""}</div>`}
+      <button class="btn small" style="background:rgba(255,255,255,.14);color:var(--hero-ink);flex:none;white-space:nowrap" data-act="tab" data-tab="settle">Settle up</button>
     </div>
   </header>`;
   let body = "";
