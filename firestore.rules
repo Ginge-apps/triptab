@@ -1,5 +1,8 @@
 rules_version = '2';
-// Ted's Tab database rules, v9 (Nov 14, 2026). Review and fixes chat. base: v8
+// Ted's Tab database rules, v10 (Nov 15, 2026). Trip plan and group text. base: v9
+// v10: adds trips/{t}/plan (the published itinerary: everyone in the trip reads, only the organizer writes) and trips/{t}/planDraft
+//     (the organizer's draft, visible to the organizer only). Plan items are shape-checked. People may carry an optional mobile number
+//     (digits, +, spaces, brackets, dashes; up to 20 characters) for the Text the crew button. Nothing else changes from v9.
 // v9: the database refuses badly formed data instead of leaving that to the app: record ids must be plain letters, digits, dash or
 //     underscore; names and notes have length limits; currency is three capital letters; shares, rates and "Pays for" are numbers;
 //     dates are YYYY-MM-DD; a receipt is a JPEG picture. Who may read, add, change or delete anything is exactly as in v8.
@@ -37,6 +40,7 @@ service cloud.firestore {
     function okPerson(d) { return d.get('name', '') is string && d.get('name', '').size() > 0 && d.get('name', '').size() <= 100
       && okText(d, 'nickname', 80) && okText(d, 'household', 100) && okText(d, 'venmo', 200) && okText(d, 'revolut', 200) && okText(d, 'zelle', 200)
       && okText(d, 'paypal', 200) && okText(d, 'other', 200) && okText(d, 'cards', 40)
+      && okText(d, 'phone', 20) && (d.get('phone', '') == '' || d.get('phone', '').matches('^[+0-9 ()-]*$'))
       && d.get('color', '#888') is string && d.get('color', '#888').matches('^#[0-9a-fA-F]{3,8}$')
       && d.get('weight', 1) is number && d.get('weight', 1) > 0 && d.get('weight', 1) <= 20 && d.get('away', []) is list && d.get('away', []).size() <= 60; }
     function okExpense(d) { return okText(d, 'description', 300) && okText(d, 'note', 1000) && okText(d, 'category', 40) && okCur(d) && okDate(d)
@@ -45,6 +49,14 @@ service cloud.firestore {
       && d.get('split', {}) is map && d.get('split', {}).size() <= 80
       && (d.get('payers', null) == null || (d.get('payers', {}) is map && d.get('payers', {}).size() <= 80))
       && (d.get('items', null) == null || (d.get('items', []) is list && d.get('items', []).size() <= 80)); }
+    // v10: a plan item needs a title and a date; start and end are HH:MM or empty; time zone is an IANA name.
+    function okPlanItem(d) { return d.get('title', '') is string && d.get('title', '').size() >= 1 && d.get('title', '').size() <= 120
+      && d.get('day', '') is string && d.get('day', '').matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+      && d.get('start', '') is string && (d.get('start', '') == '' || d.get('start', '').matches('^([01][0-9]|2[0-3]):[0-5][0-9]$'))
+      && d.get('end', '') is string && (d.get('end', '') == '' || d.get('end', '').matches('^([01][0-9]|2[0-3]):[0-5][0-9]$'))
+      && okText(d, 'place', 200) && okText(d, 'notes', 1000)
+      && d.get('tz', 'UTC') is string && d.get('tz', 'UTC').size() <= 40 && d.get('tz', 'UTC').matches('^[A-Za-z_]+(/[A-Za-z_+0-9-]+){0,2}$')
+      && d.get('order', 0) is number; }
     function okPayment(d) { return d.get('from', '') is string && okId(d.get('from', '')) && d.get('to', '') is string && okId(d.get('to', '')) && okDate(d); }
     // Help-desk admin: a verified Google sign-in with this exact email. Anonymous app sign-ins have no email, so they can never match.
     function isAdmin() { return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com'
@@ -102,6 +114,17 @@ service cloud.firestore {
           && request.resource.data.pid is string && request.resource.data.name is string && request.resource.data.name.size() <= 60
           && exists(/databases/$(database)/documents/trips/$(t)/people/$(request.resource.data.pid));
         allow delete: if signedIn() && (u == me() || isOrganizer(t));
+      }
+
+      // v10: the trip plan. Everyone in the trip reads it; only the organizer writes. Drafts are the organizer's alone.
+      match /plan/{p} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && isOrganizer(t) && okId(p) && okPlanItem(request.resource.data);
+        allow delete: if signedIn() && isOrganizer(t);
+      }
+      match /planDraft/{p} {
+        allow read, delete: if signedIn() && isOrganizer(t);
+        allow create, update: if signedIn() && isOrganizer(t) && okId(p) && okPlanItem(request.resource.data);
       }
 
       match /receipts/{r} {
