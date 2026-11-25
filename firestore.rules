@@ -1,5 +1,8 @@
 rules_version = '2';
-// Ted's Tab database rules, v8 (Oct 15, 2026). App Build (merge chat). base: v7
+// Ted's Tab database rules, v9 (Nov 14, 2026). Review and fixes chat. base: v8
+// v9: the database refuses badly formed data instead of leaving that to the app: record ids must be plain letters, digits, dash or
+//     underscore; names and notes have length limits; currency is three capital letters; shares, rates and "Pays for" are numbers;
+//     dates are YYYY-MM-DD; a receipt is a JPEG picture. Who may read, add, change or delete anything is exactly as in v8.
 // v8: adds trips/{t}/requests/{uid} so a crew member whose phone forgot them can ask the organizer to move their name to the new phone. Nothing else changes.
 // v7: adds the helpdeskReviews collection, readable and writable only by the help-desk admin, so the Help Desk can save 'reviewed OK' notes on flags. No access to trips, people, expenses, payments or receipts changes.
 // v6: adds one help-desk admin (a verified Google sign-in as ted.brownn@gmail.com) who may list all trips, for the read-only Help Desk page (admin.html). Nothing else changes from v5.
@@ -25,6 +28,24 @@ service cloud.firestore {
     function addedByMe() { return resource.data.get('createdBy', '') == me(); }
     function sameCreator() { return request.resource.data.get('createdBy', '') == resource.data.get('createdBy', ''); }
     function okAmount(a) { return a is number && a >= 0 && a < 10000000; }
+    // v9 shape checks. Missing fields are fine (older records); a field that is present must be the right kind and size.
+    function okId(id) { return id.matches('^[A-Za-z0-9_-]{1,64}$'); }
+    function okText(d, k, n) { return d.get(k, '') is string && d.get(k, '').size() <= n; }
+    function okCur(d) { return d.get('currency', 'USD') is string && d.get('currency', 'USD').matches('^[A-Z]{3}$'); }
+    function okDate(d) { return d.get('date', null) == null || (d.get('date', '') is string && d.get('date', '').matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')); }
+    function okTrip(d) { return okText(d, 'name', 200) && okText(d, 'skin', 30) && okCur(d) && d.get('rates', {}) is map && d.get('rates', {}).size() <= 60; }
+    function okPerson(d) { return d.get('name', '') is string && d.get('name', '').size() > 0 && d.get('name', '').size() <= 100
+      && okText(d, 'nickname', 80) && okText(d, 'household', 100) && okText(d, 'venmo', 200) && okText(d, 'revolut', 200) && okText(d, 'zelle', 200)
+      && okText(d, 'paypal', 200) && okText(d, 'other', 200) && okText(d, 'cards', 40)
+      && d.get('color', '#888') is string && d.get('color', '#888').matches('^#[0-9a-fA-F]{3,8}$')
+      && d.get('weight', 1) is number && d.get('weight', 1) > 0 && d.get('weight', 1) <= 20 && d.get('away', []) is list && d.get('away', []).size() <= 60; }
+    function okExpense(d) { return okText(d, 'description', 300) && okText(d, 'note', 1000) && okText(d, 'category', 40) && okCur(d) && okDate(d)
+      && (d.get('rate', null) == null || (d.get('rate', 0) is number && d.get('rate', 0) >= 0))
+      && (d.get('paidBy', null) == null || (d.get('paidBy', '') is string && okId(d.get('paidBy', 'x'))))
+      && d.get('split', {}) is map && d.get('split', {}).size() <= 80
+      && (d.get('payers', null) == null || (d.get('payers', {}) is map && d.get('payers', {}).size() <= 80))
+      && (d.get('items', null) == null || (d.get('items', []) is list && d.get('items', []).size() <= 80)); }
+    function okPayment(d) { return d.get('from', '') is string && okId(d.get('from', '')) && d.get('to', '') is string && okId(d.get('to', '')) && okDate(d); }
     // Help-desk admin: a verified Google sign-in with this exact email. Anonymous app sign-ins have no email, so they can never match.
     function isAdmin() { return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com'
       && request.auth.token.email_verified == true && request.auth.token.email == 'ted.brownn@gmail.com'; }
@@ -32,20 +53,20 @@ service cloud.firestore {
     match /trips/{t} {
       allow get: if signedIn();
       allow list: if isAdmin();  // trip codes cannot be browsed by the crew; only the help-desk admin can list trips
-      allow create: if signedIn() && request.resource.data.createdBy == me();
+      allow create: if signedIn() && request.resource.data.createdBy == me() && okId(t) && okTrip(request.resource.data);
       // Trip settings belong to the organizer. The app saves exchange rates it looked up, so crew may touch only that field.
-      allow update: if signedIn() && sameCreator() && (resource.data.createdBy == me()
+      allow update: if signedIn() && sameCreator() && okTrip(request.resource.data) && (resource.data.createdBy == me()
         || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rates']));
       allow delete: if signedIn() && resource.data.createdBy == me();
 
       match /people/{p} {
         allow read: if signedIn();
         // New people are unclaimed, or claimed by me; the organizer can also bring over a crew from a past trip
-        allow create: if signedIn() && (request.resource.data.get('uid', null) == null || request.resource.data.uid == me() || isOrganizerAfter(t));
+        allow create: if signedIn() && okId(p) && okPerson(request.resource.data) && (request.resource.data.get('uid', null) == null || request.resource.data.uid == me() || isOrganizerAfter(t));
         // Organizer edits anyone, and can free up a claimed name (uid back to null) when someone reinstalls.
         // v5: crew edit ONLY their own entry, and never 'Pays for' (weight) or days out, which move money.
         // A name nobody has claimed can only be claimed (uid null -> me, nothing else changed); its details stay with the organizer.
-        allow update: if signedIn() && (isOrganizer(t)
+        allow update: if signedIn() && okPerson(request.resource.data) && (isOrganizer(t)
           || (resource.data.get('uid', null) == me()
               && request.resource.data.get('uid', null) == me()
               && request.resource.data.get('weight', 1) == resource.data.get('weight', 1)
@@ -58,16 +79,16 @@ service cloud.firestore {
 
       match /expenses/{e} {
         allow read: if signedIn();
-        allow create: if signedIn() && request.resource.data.createdBy == me() && okAmount(request.resource.data.amount);
+        allow create: if signedIn() && okId(e) && request.resource.data.createdBy == me() && okAmount(request.resource.data.amount) && okExpense(request.resource.data);
         // Anyone in the trip can fix an expense. Someone other than the creator or organizer must sign the change as themselves.
-        allow update: if signedIn() && sameCreator() && okAmount(request.resource.data.amount)
+        allow update: if signedIn() && sameCreator() && okAmount(request.resource.data.amount) && okExpense(request.resource.data)
           && (addedByMe() || isOrganizer(t) || request.resource.data.get('editedBy', '') == me());
         allow delete: if signedIn() && (addedByMe() || isOrganizer(t));
       }
 
       match /payments/{x} {
         allow read: if signedIn();
-        allow create: if signedIn() && request.resource.data.createdBy == me() && okAmount(request.resource.data.amount);
+        allow create: if signedIn() && okId(x) && request.resource.data.createdBy == me() && okAmount(request.resource.data.amount) && okPayment(request.resource.data);
         allow update: if false;
         allow delete: if signedIn() && (addedByMe() || isOrganizer(t));
       }
@@ -85,7 +106,8 @@ service cloud.firestore {
 
       match /receipts/{r} {
         allow read: if signedIn();
-        allow create, update: if signedIn() && request.resource.data.img is string && request.resource.data.img.size() < 1000000;
+        allow create, update: if signedIn() && okId(r) && request.resource.data.img is string && request.resource.data.img.size() < 1000000
+          && request.resource.data.img.size() > 23 && request.resource.data.img[0:23] == 'data:image/jpeg;base64,';
         // The receipt goes with its expense: the expense's creator, the organizer, or anyone once the expense is gone
         allow delete: if signedIn() && (isOrganizer(t)
           || !exists(/databases/$(database)/documents/trips/$(t)/expenses/$(r))

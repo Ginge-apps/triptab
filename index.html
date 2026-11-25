@@ -363,6 +363,25 @@ details.more[open]>summary svg{transform:rotate(90deg)}
 .pick .chip .dot{width:26px;height:26px;font-size:11px}
 .cur-tag{background:var(--surface-2);border-radius:10px;padding:0 12px;min-height:var(--tap);display:inline-flex;align-items:center;font-size:16px;font-weight:600;color:var(--fg)}
 .amount-in::placeholder{color:var(--muted);opacity:.6}
+
+/* v2.4.13: no pinch or double-tap zoom on the app; the wheel takes its own drags; Plan tab */
+html,body{touch-action:manipulation}
+.wheel-box canvas{touch-action:none}
+.plan-wrap{display:grid;gap:4px}
+.plan-hero{border-radius:20px;padding:18px 18px 16px;background:linear-gradient(140deg,#2f6b8f,#1d3a57);color:#fff;margin-bottom:10px}
+.plan-k{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;opacity:.8}
+.plan-h{font-size:22px;font-weight:700;line-height:1.2;margin:8px 0 4px}
+.plan-sub{font-size:14px;opacity:.92;margin-top:3px}
+.plan-day{margin-top:14px}
+.plan-day h3{margin:0 0 8px;font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.7}
+.plan-item{display:flex;gap:12px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px;margin-bottom:8px}
+.plan-item.draft{border-style:dashed}
+.plan-when{width:70px;flex:none;display:grid;gap:2px;font-size:14px;line-height:1.2}
+.plan-body{min-width:0}
+.plan-title{font-weight:700;font-size:16px;line-height:1.25}
+.plan-place,.plan-notes{font-size:14px;opacity:.8;margin-top:3px}
+.plan-yours{font-size:13px;margin-top:4px;color:#c4822a}
+.plan-review{display:grid;gap:0}
 </style>
 </head>
 <body>
@@ -375,7 +394,9 @@ const CFG = window.TRIPTAB_CONFIG || {};
 const APP = CFG.appName || "Ted's Tab";
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const VERSION = "2.4.12";
+const VERSION = "2.4.13";
+// Stop pinch zoom from the iPhone gesture system. Double-tap zoom is stopped by touch-action in the CSS.
+document.addEventListener("gesturestart", e => e.preventDefault(), { passive: false });
 // Everything in a trip is typed by people who hold the trip code, so nothing from the database goes on screen unchecked.
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/, ISO_RE = /^\d{4}-\d\d-\d\d$/;
 const safeCur = c => /^[A-Za-z]{3}$/.test(String(c || "")) ? String(c).toUpperCase() : "USD";
@@ -446,6 +467,7 @@ const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform 
 const isStandalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 
 const ICON = {
+  cal: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
   plane: '<svg viewBox="0 0 120 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 7h50" stroke-dasharray="3 4"/><path d="M68 7h50" stroke-dasharray="3 4"/><path fill="currentColor" stroke="none" d="M60 1.5l2 0 3.5 4.5h4.5c1 0 1.6.5 1.6 1s-.6 1-1.6 1H65.5L62 12.5h-2l1.8-4.5h-3.6l-1.2 1.5h-1.4l.8-2.5-.8-2.5h1.4l1.2 1.5h3.6z"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>',
@@ -557,7 +579,7 @@ const S = {
   view: "home", tab: LS.get("tab", "feed"),
   inbox: [],           // receipts waiting for review
   settings: Object.assign({ sound: true, voice: true, tease: true, haptics: true }, LS.get("settings", {})),
-  unsubTrip: [], unsubTrips: {}, ready: false, loaded: { expenses: false }
+  unsubTrip: [], unsubTrips: {}, ready: false, loaded: { expenses: false }, plan: [], planDraft: [], planQ: [], planText: ""
 };
 const write = (p, fn) => p.catch(e => { console.error(e); toast(fn || "Could not save. Check your connection; it will retry when you are back online."); });
 
@@ -860,9 +882,11 @@ function openTrip(id) {
   if (!S.histTrip) { S.histTrip = true; histPush(); }
   S.unsubTrip.forEach(u => u()); S.unsubTrip = [];
   if (id !== LS.get("lastTrip", null)) { S.tab = "feed"; LS.set("tab", "feed"); }  // WS9: a different trip opens on Expenses, with the boarding pass
-  S.tripId = id; S.trip = S.trips[id] || null; S.view = "trip"; S.people = []; S.expenses = []; S.payments = []; S.requests = []; S.reqSubFor = null; S.loaded = { expenses: false };
+  S.tripId = id; S.trip = S.trips[id] || null; S.view = "trip"; S.people = []; S.expenses = []; S.payments = []; S.requests = []; S.reqSubFor = null; S.loaded = { expenses: false }; S.plan = []; S.planDraft = []; S.planQ = [];
   LS.set("lastTrip", id);
   const base = "trips/" + id;
+  S.unsubTrip.push(S.store.sub(base + "/plan", docs => { S.plan = docs.filter(okDoc).map(cleanPlan); render(); }, e => console.warn(e)));
+  if (S.trips[id]?.createdBy === S.uid) S.unsubTrip.push(S.store.sub(base + "/planDraft", docs => { S.planDraft = docs.filter(okDoc).map(cleanPlan); render(); }, e => console.warn(e)));
   S.unsubTrip.push(S.store.sub(base + "/people", docs => { S.people = docs.filter(okDoc).map(cleanPerson).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)); checkReclaimDone(); render(); }));
   S.unsubTrip.push(S.store.sub(base + "/expenses", (docs, changes) => {
     const first = !S.loaded.expenses; S.expenses = docs.filter(okDoc).map(cleanExpense); S.loaded.expenses = true;
@@ -1017,7 +1041,7 @@ function renderTrip() {
     return mine ? `<div class="banner bad"><b>Someone asked to use your name</b><span class="muted" style="font-size:var(--fs-sm)">A phone asked to be ${esc(p.name)}. That's you, so it can't be moved.</span><button class="btn small ghost" data-act="req-no" data-id="${esc(r.id)}">Turn it down</button></div>`
     : `<div class="banner act req"><div class="grow"><b>${esc(dn(p))} is on a new phone</b><div class="muted">${dup ? `They also added themselves as ${esc(dup.name)}; that gets merged in. ` : ""}Allow if it's them.</div></div><div class="row" style="gap:8px;margin:0"><button class="btn small quiet" data-act="req-no" data-id="${esc(r.id)}">Not them</button><button class="btn small strong" data-act="req-ok" data-id="${esc(r.id)}">Allow</button></div></div>`; }).join("") : "";
   const safariNote = isIOS && !isStandalone && S.store.mode === "cloud" ? `<button class="banner" data-act="install-help" style="display:flex;align-items:center;gap:12px;text-align:left;width:100%"><div class="grow"><b>Add to your Home Screen</b><div class="muted">Safari can forget you after a week.</div></div>${ICON.chev}</button>` : "";
-  const header = `<div class="top-actions"><button class="icon-btn" data-act="home" aria-label="All trips">${ICON.back}</button>${newbie ? "<div></div>" : `<div class="row"><button class="icon-btn" data-act="invite" aria-label="Invite">${ICON.users}</button><button class="icon-btn" data-act="trip-settings" aria-label="Trip settings">${ICON.gear}</button></div>`}</div>
+  const header = `<div class="top-actions"><button class="icon-btn" data-act="home" aria-label="All trips">${ICON.back}</button>${newbie ? "<div></div>" : `<div class="row"><button class="icon-btn" data-act="plan" aria-label="Plan">${ICON.cal}</button><button class="icon-btn" data-act="invite" aria-label="Invite">${ICON.users}</button><button class="icon-btn" data-act="trip-settings" aria-label="Trip settings">${ICON.gear}</button></div>`}</div>
   <header class="pass">
     ${SCENE[skinOf(t)] ? `<div class="pass-scene">${sceneSvg(skinOf(t), false)}</div>` : ""}
     <div class="pass-main">
@@ -1038,11 +1062,12 @@ function renderTrip() {
     </div>`}
   </header>`;
   // WS9: the full boarding pass lives on Expenses; other tabs get a slim header so their own content leads
-  const mini = `<div class="top-actions"><button class="icon-btn" data-act="home" aria-label="All trips">${ICON.back}</button><div class="mini-t"><b>${esc(t.name)}</b><span class="num">${t.start ? esc(shortDate(t.start)) + (t.end ? "-" + esc(shortDate(t.end)) : "") : ""}<i class="tot" style="font-style:normal">${t.start ? " · " : ""}${fmt(total, cur, { whole: true })} total</i></span></div>${newbie ? "<div></div>" : `<div class="row"><button class="icon-btn" data-act="invite" aria-label="Invite">${ICON.users}</button><button class="icon-btn" data-act="trip-settings" aria-label="Trip settings">${ICON.gear}</button></div>`}</div>`;
+  const mini = `<div class="top-actions"><button class="icon-btn" data-act="home" aria-label="All trips">${ICON.back}</button><div class="mini-t"><b>${esc(t.name)}</b><span class="num">${t.start ? esc(shortDate(t.start)) + (t.end ? "-" + esc(shortDate(t.end)) : "") : ""}<i class="tot" style="font-style:normal">${t.start ? " · " : ""}${fmt(total, cur, { whole: true })} total</i></span></div>${newbie ? "<div></div>" : `<div class="row"><button class="icon-btn" data-act="plan" aria-label="Plan">${ICON.cal}</button><button class="icon-btn" data-act="invite" aria-label="Invite">${ICON.users}</button><button class="icon-btn" data-act="trip-settings" aria-label="Trip settings">${ICON.gear}</button></div>`}</div>`;
   const onFeed = !S.tab || S.tab === "feed";
   let body = "";
   if (S.tab === "settle") body = renderSettle(bal);
   else if (S.tab === "stats") body = renderStats(bal);
+  else if (S.tab === "plan") body = renderPlan();
   else if (S.tab === "crew") body = renderCrew(bal);
   else body = renderFeed(bal);
   const nb = (tab, icon, label) => `<button data-act="tab" data-tab="${tab}" ${S.tab === tab ? 'aria-current="page"' : ""}>${icon}<span>${label}</span></button>`;
@@ -1335,6 +1360,7 @@ function renderCrew(bal) {
     <div class="two"><button class="btn primary" data-act="add-person">${ICON.plus} Add person</button><button class="btn ghost" data-act="paste-names">Paste names</button></div>
     ${"contacts" in navigator && "select" in (navigator.contacts || {}) ? `<button class="btn ghost block" data-act="contacts">Pick from contacts</button>` : ""}
     <button class="btn ghost block" data-act="invite">Invite with code or QR</button>
+    <button class="btn ghost block" data-act="text-crew">Text the crew</button>
     <p class="hint" style="margin:0">Same household name settles a couple or family as one.${isOrganizer() ? "" : " You can edit only your own details."}</p>
   </div>`;
 }
@@ -2043,6 +2069,8 @@ function openPersonForm(p, claimSelf) {
     <div class="stack">
       <input class="input" id="pN" maxlength="80" placeholder="Name" value="${esc(p.name)}">
       <input class="input" id="pNick" maxlength="40" placeholder="Nickname (Big Dog), optional" value="${esc(p.nickname || "")}">
+      <input class="input" id="pPh" type="tel" maxlength="20" inputmode="tel" placeholder="Mobile number, optional (for Text the crew)" value="${esc(p.phone || "")}">
+      <span class="hint" style="margin-top:-4px">Shared with everyone on this trip, only for the Text the crew button. Leave it blank to skip.</span>
       <div class="field"><span class="label">Household or couple (optional)</span>
         ${hhNames.length ? `<div class="chips" id="pHHchips">${hhNames.map(h => `<button type="button" class="chip" aria-pressed="${(p.household || "").trim().toLowerCase() === h.toLowerCase()}" data-hhpick="${esc(h)}">${esc(h)}</button>`).join("")}<button type="button" class="chip" aria-pressed="${!(p.household || "").trim()}" data-hhpick="">None</button></div>` : ""}
         <input class="input" id="pHH" maxlength="60" placeholder="${hhNames.length ? "Or type a new one" : "e.g. The Browns"}" value="${esc(p.household || "")}">
@@ -2072,7 +2100,7 @@ function openPersonForm(p, claimSelf) {
       sh.querySelectorAll("[data-away]").forEach(b => b.onclick = () => { const d = b.dataset.away, i = p.away.indexOf(d); i >= 0 ? p.away.splice(i, 1) : p.away.push(d); b.setAttribute("aria-pressed", i < 0); });
       $("#pSave", sh).onclick = () => {
         const name = $("#pN", sh).value.trim(); if (!name) return toast("Enter a name.");
-        const rec = { ...p, name, nickname: $("#pNick", sh).value.trim(), household: $("#pHH", sh).value.trim(), venmo: $("#pV", sh).value.trim(), revolut: $("#pR", sh).value.trim().replace(/^https?:\/\/(www\.)?revolut\.me\//i, ""), zelle: $("#pZ", sh).value.trim(), paypal: $("#pP", sh).value.trim(), other: $("#pO", sh).value.trim(), cards: cleanCards($("#pCard", sh).value) };
+        const rec = { ...p, name, phone: $("#pPh", sh).value.replace(/[^+0-9 ()-]/g, "").trim().slice(0, 20), nickname: $("#pNick", sh).value.trim(), household: $("#pHH", sh).value.trim(), venmo: $("#pV", sh).value.trim(), revolut: $("#pR", sh).value.trim().replace(/^https?:\/\/(www\.)?revolut\.me\//i, ""), zelle: $("#pZ", sh).value.trim(), paypal: $("#pP", sh).value.trim(), other: $("#pO", sh).value.trim(), cards: cleanCards($("#pCard", sh).value) };
         if (claimSelf && !editing && !p._twinOk) {
           const low = name.toLowerCase(), f = firstName(name).toLowerCase();
           const twin = S.people.find(x => x.name.trim().toLowerCase() === low || (x.nickname || "").trim().toLowerCase() === low || firstName(x.name).toLowerCase() === f);
@@ -2508,7 +2536,7 @@ function openWheel() {
       <p class="hint" style="text-align:center;margin:0">Everyone rolls. Lowest roll buys.</p>
       <button class="btn primary block" id="dRoll" style="min-height:54px;font-size:17px">Roll</button></div>
       ${S.settings.tease ? `<button class="btn small quiet" style="justify-self:center" data-act="tease-worst">Roast whoever owes the most</button>` : ""}
-      <button class="btn ghost block" id="dShake">Turn on shake</button>
+      <button class="btn ghost block" id="dShake">Turn on shake</button>${LS.get("shakeNo", false) ? `<p class="hint" style="margin:6px 0 0">Shake is blocked on this phone. Tap Spin instead.</p>` : ""}
       <div id="wRes"></div>
     </div>`, { skin: skinOf(S.trip) });
   const cv = $("#wc", sh), ctx = cv.getContext("2d");
@@ -2643,8 +2671,8 @@ function openWheel() {
   const shakeLabel = () => { $("#dShake", sh).textContent = shakeOn ? `Shake is on: shake to ${tool === "dice" ? "roll" : "spin"} again` : "Turn on shake"; };
   $("#dShake", sh).onclick = async () => {
     if (shakeOn) { removeEventListener("devicemotion", onMotion); shakeOn = false; shakeLabel(); return; }
-    try { if (typeof DeviceMotionEvent !== "undefined" && DeviceMotionEvent.requestPermission) { const p = await DeviceMotionEvent.requestPermission(); if (p !== "granted") { toast("Motion access was not allowed. Tap the button instead."); return; } } } catch { toast("Shake is not available here. Tap the button instead."); return; }
-    addEventListener("devicemotion", onMotion); shakeOn = true; shakeLabel(); toast("Shake the phone to go again");
+    try { if (typeof DeviceMotionEvent !== "undefined" && DeviceMotionEvent.requestPermission) { const p = await DeviceMotionEvent.requestPermission(); if (p !== "granted") { LS.set("shakeNo", true); toast("iPhone is blocking motion for this app. Spin is the way; allow motion in iPhone Settings and reopen the app to retry.", 6500); return; } } } catch { toast("Shake is not available here. Tap the button instead."); return; }
+    LS.set("shakeNo", false); addEventListener("devicemotion", onMotion); shakeOn = true; shakeLabel(); toast("Shake the phone to go again");
   };
   const stopShake = () => removeEventListener("devicemotion", onMotion);
   const obs = new MutationObserver(() => { if (!document.body.contains(sh)) { stopShake(); obs.disconnect(); } }); obs.observe(document.body, { childList: true, subtree: true });
@@ -2729,6 +2757,262 @@ addEventListener("popstate", () => {
   if (sheetStack.length) closeSheet(true); else if (S.view === "trip" && S.histTrip) goHome(true);
 });
 boot();
+
+/* ===================== v2.4.13: Plan (itinerary), calendar files, group text ===================== */
+// Times are stored as the wall-clock time in the event's own time zone (IANA name). Everyone sees the zone label;
+// a member whose phone is in another zone also sees the time in their own zone.
+const TZ_CHOICES = ["America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "America/Detroit", "America/Toronto", "America/Phoenix", "America/Anchorage", "Pacific/Honolulu", "America/Mexico_City", "America/Halifax", "Europe/London", "Europe/Dublin", "Europe/Lisbon", "Europe/Paris", "Europe/Berlin", "Europe/Madrid", "Europe/Rome", "Europe/Amsterdam", "Asia/Dubai", "Asia/Tokyo", "Asia/Singapore", "Australia/Sydney", "UTC"];
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/, HM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const PLAN_ALPH = "abcdefghijklmnopqrstuvwxyz0123456789";
+const phoneTZ = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; } };
+const validTZ = z => { try { if (/^[A-Za-z_]+(\/[A-Za-z_+\-0-9]+){0,2}$/.test(z)) { new Intl.DateTimeFormat("en-US", { timeZone: z }); return z; } } catch {} return "UTC"; };
+// Milliseconds of the wall-clock reading of instant ms in zone tz, read as if it were UTC.
+function zoneWall(ms, tz) {
+  const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(new Date(ms));
+  const g = t => +p.find(x => x.type === t).value;
+  return Date.UTC(g("year"), g("month") - 1, g("day"), g("hour"), g("minute"), g("second"));
+}
+// The real instant for a wall-clock time (YYYY-MM-DD, HH:MM) in zone tz. Two passes handle daylight-saving edges.
+function zonedMs(day, hm, tz) {
+  const [y, m, d] = day.split("-").map(Number), [h, mi] = hm.split(":").map(Number);
+  const guess = Date.UTC(y, m - 1, d, h, mi);
+  const t1 = guess - (zoneWall(guess, tz) - guess);
+  return guess - (zoneWall(t1, tz) - t1);
+}
+const planStart = it => (DAY_RE.test(it.day || "") && HM_RE.test(it.start || "")) ? zonedMs(it.day, it.start, it.tz) : null;
+const planEnd = it => { const s = planStart(it); if (s == null) return null; const e = HM_RE.test(it.end || "") ? zonedMs(it.day, it.end, it.tz) : s + 3600000; return e > s ? e : s + 3600000; };
+// Sort key: a timed item sorts by its start; an all-day item sorts at the start of its day; an item with no date goes last.
+const planSortKey = it => DAY_RE.test(it.day || "") ? (planStart(it) ?? zonedMs(it.day, "00:00", it.tz)) : Infinity;
+const sortPlan = (a, b) => { const sa = planSortKey(a), sb = planSortKey(b); if (sa !== sb) return sa < sb ? -1 : 1; return (a.order || 0) - (b.order || 0); };
+const cleanPlan = p => ({ id: p.id, day: DAY_RE.test(String(p.day || "")) ? String(p.day) : "", start: HM_RE.test(String(p.start || "")) ? String(p.start) : "", end: HM_RE.test(String(p.end || "")) ? String(p.end) : "", title: String(p.title || "Untitled").slice(0, 120), place: String(p.place || "").slice(0, 200), notes: String(p.notes || "").slice(0, 1000), tz: validTZ(String(p.tz || "UTC")), order: +p.order || 0 });
+const wallLabel = (ms, tz) => new Intl.DateTimeFormat(undefined, { timeZone: tz, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(ms);
+const clockOnly = (ms, tz) => new Intl.DateTimeFormat(undefined, { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(ms);
+const zoneShort = (ms, tz) => (wallLabel(ms, tz).match(/[A-Z][A-Za-z+\-0-9:]*$/) || [""])[0];
+const dayLabel = day => DAY_RE.test(day || "") ? new Date(day + "T12:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) : "Day not set";
+function untilText(ms) { const d = ms - Date.now(); if (d <= 0 || d > 172800000) return ""; const h = Math.floor(d / 3600000), m = Math.round((d % 3600000) / 60000); return h ? `In ${h} h ${m} min` : `In ${Math.max(m, 1)} min`; }
+const nextDayISO = day => { const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() + 1); return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-"); };
+
+/* ---- calendar files (iCalendar). Times are written in UTC, so every calendar app shows them right. ---- */
+const icsUTC = ms => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+const icsText = s => String(s || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+function icsFold(line) { const out = []; let s = line; while (s.length > 73) { out.push(s.slice(0, 73)); s = " " + s.slice(73); } out.push(s); return out.join("\r\n"); }
+function icsFor(items, calName) {
+  const stamp = icsUTC(Date.now());
+  const L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Ted's Tab//Trip plan//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH", "X-WR-CALNAME:" + icsText(calName)];
+  for (const it of items) {
+    const s = planStart(it);
+    if (s == null && !DAY_RE.test(it.day || "")) continue;  // no date: nothing to put on a calendar
+    L.push("BEGIN:VEVENT", "UID:" + it.id + "@triptab", "DTSTAMP:" + stamp);
+    if (s != null) L.push("DTSTART:" + icsUTC(s), "DTEND:" + icsUTC(planEnd(it)));
+    else L.push("DTSTART;VALUE=DATE:" + it.day.replace(/-/g, ""), "DTEND;VALUE=DATE:" + nextDayISO(it.day).replace(/-/g, ""));
+    L.push("SUMMARY:" + icsText(it.title));
+    if (it.place) L.push("LOCATION:" + icsText(it.place));
+    const desc = [it.notes, s != null ? "Time zone: " + it.tz : ""].filter(Boolean).join("\n");
+    if (desc) L.push("DESCRIPTION:" + icsText(desc));
+    L.push("END:VEVENT");
+  }
+  L.push("END:VCALENDAR");
+  return L.map(icsFold).join("\r\n") + "\r\n";
+}
+// On iPhone the share sheet offers "Add to Calendar" for the file; elsewhere it downloads.
+async function shareCalendar(items, calName) {
+  const dated = items.filter(it => planStart(it) != null || DAY_RE.test(it.day || ""));
+  if (!dated.length) return toast("Give the item a date first.");
+  const text = icsFor(dated, calName);
+  const safe = (calName || "Trip plan").replace(/[^\w ()-]/g, "").trim().slice(0, 60) || "Trip plan", fname = safe + ".ics";
+  const file = new File([text], fname, { type: "text/calendar" });
+  try { if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file], title: safe }); return; } } catch (e) { if (e?.name === "AbortError") return; }
+  const url = URL.createObjectURL(new Blob([text], { type: "text/calendar" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: fname });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+/* ---- group text: Messages opens with every number on the trip filled in ---- */
+function groupTextBody() {
+  const t = S.trip, nxt = S.plan.find(it => { const e = planEnd(it); return e != null && e > Date.now(); });
+  const dates = t.start ? shortDate(t.start) + (t.end ? " to " + shortDate(t.end) : "") : "";
+  const lines = [`${t.name}${dates ? " (" + dates + ")" : ""}`];
+  if (nxt) lines.push(`Up next: ${nxt.title}${planStart(nxt) != null ? ", " + clockOnly(planStart(nxt), nxt.tz) + " " + zoneShort(planStart(nxt), nxt.tz) : ""}`);
+  lines.push(`Join with code ${S.tripId}: ${location.origin}${location.pathname}`);
+  return lines.join("\n");
+}
+function textCrew() {
+  const me = myPid();
+  const others = S.people.filter(p => p.id !== me);
+  const nums = others.filter(p => (p.phone || "").replace(/\D/g, "").length >= 7).map(p => p.phone.replace(/[^+0-9]/g, ""));
+  if (!nums.length) return toast("No numbers yet. On Crew, tap a name and add a mobile number.", 4500);
+  const missing = others.length - nums.length;
+  if (missing > 0) toast(`${missing} ${missing > 1 ? "people have" : "person has"} no number yet and won't be in the text.`, 4500);
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  location.href = `sms:${nums.join(",")}${ios ? "&" : "?"}body=${encodeURIComponent(groupTextBody())}`;
+}
+
+/* ---- the plan view ---- */
+function planCard(it, draft) {
+  const s = planStart(it), mine = phoneTZ();
+  const when = s != null ? `<b class="num">${clockOnly(s, it.tz)}</b><span class="muted">${zoneShort(s, it.tz)}</span>` : `<b>Any time</b>`;
+  const yours = s != null && mine !== it.tz ? `<div class="plan-yours">${clockOnly(s, mine)} ${zoneShort(s, mine)} your time</div>` : "";
+  const edit = isOrganizer() ? ` data-act="plan-edit" data-id="${esc(it.id)}" data-draft="${draft ? 1 : 0}"` : "";
+  return `<div class="plan-item${draft ? " draft" : ""}">
+    <div class="plan-when">${when}</div>
+    <div class="grow plan-body"${edit}>
+      <div class="plan-title">${esc(it.title)}</div>
+      ${it.place ? `<div class="plan-place">${esc(it.place)}</div>` : ""}
+      ${it.notes ? `<div class="plan-notes">${esc(it.notes)}</div>` : ""}
+      ${yours}
+    </div>
+    ${s != null || it.day ? `<button class="icon-btn" data-act="plan-ics1" data-id="${esc(it.id)}" aria-label="Add to calendar">${ICON.cal}</button>` : ""}
+  </div>`;
+}
+function renderPlan() {
+  const org = isOrganizer(), now = Date.now(), items = S.plan.slice().sort(sortPlan);
+  const nxt = items.find(it => { const e = planEnd(it); return e != null && e > now; });
+  const groups = new Map();
+  for (const it of items) { const k = it.day || ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); }
+  const draftBanner = org && S.planDraft.length ? `<div class="banner act"><div class="grow"><b>Draft: ${S.planDraft.length} item${S.planDraft.length > 1 ? "s" : ""}</b><div class="muted" style="font-size:var(--fs-sm)">Only you can see it until you publish.</div></div><button class="btn small strong" data-act="plan-review">Review</button></div>` : "";
+  const hero = nxt ? (() => { const s = planStart(nxt), u = s != null ? untilText(s) : "";
+    return `<div class="plan-hero"><span class="plan-k">Up next</span><div class="plan-h">${esc(nxt.title)}</div>
+      <div class="plan-sub">${esc(dayLabel(nxt.day))}${s != null ? " · " + clockOnly(s, nxt.tz) + " " + zoneShort(s, nxt.tz) : ""}${u ? " · " + u : ""}</div>
+      ${nxt.place ? `<div class="plan-sub">${esc(nxt.place)}</div>` : ""}
+      ${s != null && phoneTZ() !== nxt.tz ? `<div class="plan-sub">${clockOnly(s, phoneTZ())} ${zoneShort(s, phoneTZ())} your time</div>` : ""}
+      <div class="row" style="margin-top:12px"><button class="btn small" data-act="plan-ics1" data-id="${esc(nxt.id)}">Add to calendar</button></div></div>`; })() : "";
+  const sections = [...groups].map(([day, list]) => `<section class="plan-day"><h3>${esc(dayLabel(day))}</h3>${list.map(it => planCard(it, false)).join("")}</section>`).join("");
+  const empty = !items.length ? `<div class="card" style="text-align:center;padding:26px 18px"><b>No plan yet</b><p class="muted" style="margin:6px 0 0">${org ? "Build it from a description, or add items one at a time. The crew sees it when you publish." : "The organizer has not posted the plan yet."}</p></div>` : "";
+  const orgBtns = org ? `<div class="two"><button class="btn primary" data-act="plan-add">${ICON.plus} Add item</button><button class="btn ghost" data-act="plan-build">Build from a description</button></div>` : "";
+  const cal = items.some(it => planStart(it) != null || it.day) ? `<button class="btn ghost block" data-act="plan-ics-all">Add whole trip to calendar</button>` : "";
+  return `<div class="section">${draftBanner}</div>
+    <div class="section plan-wrap">${hero}${sections}${empty}</div>
+    <div class="section stack">${orgBtns}${cal}<button class="btn ghost block" data-act="text-crew">Text the crew</button></div>`;
+}
+
+/* ---- add or edit one item ---- */
+function openPlanForm(it, draft = false) {
+  const editing = !!it, p = it ? { ...it } : { id: null, day: S.trip?.start || todayISO(), start: "", end: "", title: "", place: "", notes: "", tz: phoneTZ() };
+  const zones = [...new Set([p.tz, ...TZ_CHOICES, phoneTZ()])];
+  const coll = draft ? "planDraft" : "plan";
+  openSheet(`${sheetHead(editing ? "Edit item" : draft ? "New draft item" : "New plan item")}
+  <div class="stack">
+    <input class="input" id="piT" maxlength="120" placeholder="What (Dinner at Tiger Hill)" value="${esc(p.title)}">
+    <div class="two">
+      <label class="field"><span class="label">Date</span><input class="input" type="date" id="piD" value="${esc(p.day)}"${S.trip?.start ? ` min="${esc(S.trip.start)}"` : ""}${S.trip?.end ? ` max="${esc(S.trip.end)}"` : ""}></label>
+      <label class="field"><span class="label">Time zone</span><select class="input" id="piZ">${zones.map(z => `<option value="${esc(z)}"${z === p.tz ? " selected" : ""}>${esc(z.replace(/_/g, " "))}</option>`).join("")}</select></label>
+    </div>
+    <div class="two">
+      <label class="field"><span class="label">Starts</span><input class="input" type="time" id="piS" value="${esc(p.start)}"></label>
+      <label class="field"><span class="label">Ends (optional)</span><input class="input" type="time" id="piE" value="${esc(p.end)}"></label>
+    </div>
+    <input class="input" id="piP" maxlength="200" placeholder="Place (name or address)" value="${esc(p.place)}">
+    <textarea class="input" id="piN" maxlength="1000" placeholder="Notes: reservation, dress code, what to bring">${esc(p.notes)}</textarea>
+    <span class="hint">Leave the time empty for an all-day item.</span>
+    <button class="btn primary block" id="piSave">Save</button>
+    ${editing ? `<button class="btn danger block" id="piDel">Delete item</button>` : ""}
+  </div>`, { skin: skinOf(S.trip), onMount(sh) {
+    $("#piSave", sh).onclick = () => {
+      const title = $("#piT", sh).value.trim(), day = $("#piD", sh).value, start = $("#piS", sh).value, end = $("#piE", sh).value;
+      if (!title) return toast("Give it a name.");
+      if (!DAY_RE.test(day)) return toast("Pick a date.");
+      if (start && !HM_RE.test(start)) return toast("Check the start time.");
+      if (end && !HM_RE.test(end)) return toast("Check the end time.");
+      const id = p.id || rid(12, PLAN_ALPH);
+      const rec = { day, start, end, title, place: $("#piP", sh).value.trim(), notes: $("#piN", sh).value.trim(), tz: validTZ($("#piZ", sh).value), order: it?.order ?? Date.now() };
+      write(S.store.set(`trips/${S.tripId}/${coll}/${id}`, rec));
+      closeSheet(); toast(editing ? "Saved" : "Added");
+    };
+    if ($("#piDel", sh)) $("#piDel", sh).onclick = () => { write(S.store.del(`trips/${S.tripId}/${coll}/${p.id}`)); closeSheet(); toast("Deleted"); };
+  } });
+}
+
+/* ---- build from a description: the relay drafts, the organizer reviews, nothing reaches the crew until publish ---- */
+const PLAN_SYSTEM = `You turn a group trip plan into an itinerary for a shared app. Reply with JSON only, no other text, in this shape:
+{"items":[{"day":"YYYY-MM-DD","start":"HH:MM or empty","end":"HH:MM or empty","title":"short name","place":"place or empty","notes":"short useful detail or empty","tz":"IANA time zone such as America/Detroit"}],"questions":["one short question for each thing that is unclear"]}
+Rules: turn weekday names into YYYY-MM-DD using the trip dates given. Use 24-hour times. Use the time zone of the place each item is in. If the text names a zone, use it. If the zone is unclear, use the organizer's zone that is given and ask a question. Never invent places, prices, reservations or times. If a date or time is missing, leave it empty and ask. Keep titles under 60 characters. Do not add items that are not in the text.`;
+async function buildPlanDraft(text, prevItems, answers) {
+  const t = S.trip;
+  const parts = [`Trip: ${t.name}. Trip dates: ${t.start || "not set"} to ${t.end || "not set"}. Organizer's time zone: ${phoneTZ()}.`, `Plan text from the organizer:\n${text}`];
+  if (prevItems?.length) parts.push("Current draft (JSON):\n" + JSON.stringify(prevItems.map(({ day, start, end, title, place, notes, tz }) => ({ day, start, end, title, place, notes, tz }))));
+  if (answers?.length) parts.push("Answers to your questions:\n" + answers.join("\n"));
+  const j = await askClaude(PLAN_SYSTEM, parts.join("\n\n"), 2600);
+  const items = (Array.isArray(j?.items) ? j.items : []).slice(0, 60).map(x => ({
+    day: DAY_RE.test(x.day || "") ? x.day : "", start: HM_RE.test(x.start || "") ? x.start : "", end: HM_RE.test(x.end || "") ? x.end : "",
+    title: String(x.title || "").slice(0, 120), place: String(x.place || "").slice(0, 200), notes: String(x.notes || "").slice(0, 1000), tz: validTZ(String(x.tz || phoneTZ())), order: 0 })).filter(x => x.title);
+  const questions = (Array.isArray(j?.questions) ? j.questions : []).map(q => String(q).slice(0, 300)).filter(Boolean).slice(0, 8);
+  return { items, questions };
+}
+async function writeDraft(items) {
+  const ops = S.planDraft.map(d => ({ op: "del", path: `trips/${S.tripId}/planDraft/${d.id}` }));
+  items.forEach((it, i) => ops.push({ op: "set", path: `trips/${S.tripId}/planDraft/${rid(12, PLAN_ALPH)}`, data: { day: it.day, start: it.start, end: it.end, title: it.title, place: it.place, notes: it.notes, tz: it.tz, order: i } }));
+  await S.store.batch(ops);
+}
+function openPlanBuild() {
+  openSheet(`${sheetHead("Build from a description")}
+  <div class="stack">
+    <textarea class="input" id="pbT" maxlength="20000" style="min-height:200px" placeholder="Paste or type the plan. Example: Fri Dec 5, arrive DTW, dinner at 7 at Sweet Potato Saloon. Sat Dec 6, tee times 8:20 and 8:30 at Fox Hills. Sun Dec 7, breakfast at 9, drive home."></textarea>
+    <span class="hint">Dates, times and places help. Anything unclear becomes a question you answer before you publish. Nothing reaches the crew until you publish.</span>
+    <button class="btn primary block" id="pbGo">Build draft</button>
+  </div>`, { skin: skinOf(S.trip), onMount(sh) {
+    $("#pbGo", sh).onclick = async () => {
+      const text = $("#pbT", sh).value.trim();
+      if (text.length < 10) return toast("Paste or type a little more first.");
+      const btn = $("#pbGo", sh); btn.disabled = true; btn.textContent = "Building...";
+      try {
+        S.planText = text;
+        const d = await buildPlanDraft(text, [], []);
+        if (!d.items.length) { btn.disabled = false; btn.textContent = "Build draft"; return toast("No items found. Add more detail and try again."); }
+        await writeDraft(d.items); S.planQ = d.questions;
+        closeSheet(); openPlanReview(); toast(`Draft ready: ${d.items.length} item${d.items.length > 1 ? "s" : ""}`);
+      } catch (e) { btn.disabled = false; btn.textContent = "Build draft"; toast(e.message || "Could not build the draft.", 5000); }
+    };
+  } });
+}
+function openPlanReview() {
+  const items = S.planDraft.map(cleanPlan).sort(sortPlan), qs = S.planQ || [];
+  openSheet(`${sheetHead("Review the draft")}
+  <div class="stack">
+    <p class="muted" style="margin:0">Nobody else sees this until you publish. Fix anything below, answer the questions, then publish.</p>
+    ${qs.length ? `<div class="card stack"><b>Questions</b>${qs.map((q, i) => `<label class="field"><span>${esc(q)}</span><input class="input" data-q="${i}" maxlength="300" placeholder="Your answer"></label>`).join("")}<button class="btn ghost block" id="rqGo">Update the draft with my answers</button></div>` : ""}
+    <div class="plan-review">${items.map(it => `<div class="plan-item draft">
+      <div class="plan-when">${planStart(it) != null ? `<b class="num">${clockOnly(planStart(it), it.tz)}</b><span class="muted">${zoneShort(planStart(it), it.tz)}</span>` : `<b>Any time</b>`}</div>
+      <div class="grow plan-body" data-act="plan-edit" data-id="${esc(it.id)}" data-draft="1"><div class="plan-title">${esc(it.title)}</div><div class="plan-place">${esc(dayLabel(it.day))}${it.place ? " · " + esc(it.place) : ""}</div></div></div>`).join("") || `<p class="muted">No items left in the draft.</p>`}</div>
+    <button class="btn primary block" id="rqPub"${items.length ? "" : " disabled"}>Publish ${items.length} item${items.length === 1 ? "" : "s"} to the crew</button>
+    <button class="btn ghost block" data-act="plan-add-draft">Add an item to the draft</button>
+    <button class="btn danger block" id="rqDrop">Throw the draft away</button>
+  </div>`, { skin: skinOf(S.trip), onMount(sh) {
+    const rq = $("#rqGo", sh);
+    if (rq) rq.onclick = async () => {
+      const answers = [...sh.querySelectorAll("[data-q]")].map(el => { const v = el.value.trim(); return v ? `${qs[+el.dataset.q]} ${v}` : ""; }).filter(Boolean);
+      if (!answers.length) return toast("Answer at least one question.");
+      rq.disabled = true; rq.textContent = "Updating...";
+      try { const d = await buildPlanDraft(S.planText || "", items, answers); await writeDraft(d.items); S.planQ = d.questions; closeSheet(); openPlanReview(); }
+      catch (e) { rq.disabled = false; rq.textContent = "Update the draft with my answers"; toast(e.message || "Could not update the draft.", 5000); }
+    };
+    $("#rqPub", sh).onclick = async () => {
+      const cur = S.planDraft.map(cleanPlan);
+      if (!cur.length) return;
+      const ops = cur.map(it => ({ op: "set", path: `trips/${S.tripId}/plan/${rid(12, PLAN_ALPH)}`, data: { day: it.day, start: it.start, end: it.end, title: it.title, place: it.place, notes: it.notes, tz: it.tz, order: it.order } }));
+      S.planDraft.forEach(d => ops.push({ op: "del", path: `trips/${S.tripId}/planDraft/${d.id}` }));
+      $("#rqPub", sh).disabled = true;
+      try { await S.store.batch(ops); S.planQ = []; closeSheet(); S.tab = "plan"; LS.set("tab", "plan"); render(); scrollTo(0, 0); toast("Published. The crew can see it now."); }
+      catch { $("#rqPub", sh).disabled = false; toast("Could not publish. Check your connection and try again.", 4500); }
+    };
+    $("#rqDrop", sh).onclick = async () => {
+      await write(S.store.batch(S.planDraft.map(d => ({ op: "del", path: `trips/${S.tripId}/planDraft/${d.id}` }))));
+      S.planQ = []; closeSheet(); toast("Draft thrown away");
+    };
+  } });
+}
+
+Object.assign(ACT, {
+  plan: () => { S.tab = "plan"; LS.set("tab", "plan"); render(); scrollTo(0, 0); },
+  "plan-add": () => openPlanForm(null, false),
+  "plan-add-draft": () => openPlanForm(null, true),
+  "plan-edit": el => { const draft = el.dataset.draft === "1", it = (draft ? S.planDraft : S.plan).find(x => x.id === el.dataset.id); if (it) openPlanForm(cleanPlan(it), draft); },
+  "plan-build": () => openPlanBuild(),
+  "plan-review": () => openPlanReview(),
+  "plan-ics1": el => { const it = S.plan.find(x => x.id === el.dataset.id); if (it) shareCalendar([it], it.title); else toast("Publish the plan first."); },
+  "plan-ics-all": () => shareCalendar(S.plan.slice().sort(sortPlan), (S.trip?.name || "Trip") + " plan"),
+  "text-crew": () => textCrew(),
+});
 </script>
 </body>
 </html>
